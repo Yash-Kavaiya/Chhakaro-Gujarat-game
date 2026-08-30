@@ -91,9 +91,15 @@ export class GameWorld {
     headlight: true,
   };
 
-  constructor(container: HTMLElement, customization: ChhakaroCustomization) {
+  constructor(
+    container: HTMLElement,
+    customization: ChhakaroCustomization,
+    initialDistanceMeters = 0,
+  ) {
     this.container = container;
     this.clock = new THREE.Clock();
+    // Resume: seed the odometer so totalKm doesn't snap to 0 on the first frame.
+    this.totalDistanceDriven = initialDistanceMeters;
 
     // 1. Scene setup
     this.scene = new THREE.Scene();

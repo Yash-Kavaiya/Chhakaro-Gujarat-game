@@ -68,7 +68,7 @@ export default function App() {
   const [weather, setWeather] = useState<WeatherType>('sunny');
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDayState | null>(null);
   const [isMuted, setIsMuted] = useState(false);
-  const [totalKm, setTotalKm] = useState(0);
+  const [totalKm, setTotalKm] = useState(initial.totalKm);
 
   // Economy & Progression
   const [coins, setCoins] = useState(initial.coins);
@@ -193,7 +193,7 @@ export default function App() {
   useEffect(() => {
     if (!isGameStarted || !containerRef.current) return;
 
-    const world = new GameWorld(containerRef.current, customization);
+    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000);
     worldRef.current = world;
     canvasRef.current = world.canvas;
 
@@ -514,14 +514,24 @@ export default function App() {
     }
   };
 
-  const handleStartGame = (startLoc: LocationData) => {
+  const handleStartGame = (startLoc: LocationData, isResume = false) => {
     setCurrentLocation(startLoc);
     recordVisit(startLoc.id);
     setIsGameStarted(true);
 
     soundManager.startEngine();
-    soundManager.speakGujaratiTextFallback(`ચાલો બાપા! આપણો છકડો ${startLoc.nameGujarati} થી ઉપડ્યો! જય ગરવી ગુજરાત!`);
+    soundManager.speakGujaratiTextFallback(
+      isResume
+        ? `ફરી સ્વાગત છે! આપણો છકડો ${startLoc.nameGujarati} થી આગળ વધે છે. જય ગરવી ગુજરાત!`
+        : `ચાલો બાપા! આપણો છકડો ${startLoc.nameGujarati} થી ઉપડ્યો! જય ગરવી ગુજરાત!`,
+    );
   };
+
+  const initialLocation =
+    GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0];
+  const hasSave =
+    initial.visitedLocations.length > 1 || initial.totalKm > 0 || initial.coins !== 1200;
+  const handleResume = () => handleStartGame(initialLocation, true);
 
   const handleToggleMute = () => {
     const muted = soundManager.toggleMute();
@@ -629,7 +639,14 @@ export default function App() {
       <div ref={containerRef} className="w-full h-full" />
 
       {/* Start / Launch Screen */}
-      {!isGameStarted && <StartScreen onStartGame={handleStartGame} />}
+      {!isGameStarted && (
+        <StartScreen
+          onStartGame={handleStartGame}
+          hasSave={hasSave}
+          lastLocationName={hasSave ? initialLocation.nameGujarati : null}
+          onResume={handleResume}
+        />
+      )}
 
       {/* Unified reward / event notice — one style, tone-colored border. Keyed by notice.id
           so a repeat notify() re-triggers the entry animation. */}
