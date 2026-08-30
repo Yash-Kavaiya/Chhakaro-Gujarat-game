@@ -9,7 +9,6 @@ export class ChhakaroModel {
   public rearRightWheelMesh: THREE.Mesh;
   public flywheelMesh: THREE.Mesh;
   public exhaustParticles: THREE.Points;
-  public steamParticles: THREE.Points;
   public spotLight: THREE.SpotLight;
   public spotLightTarget: THREE.Object3D;
   public headLightGlow: THREE.PointLight;
