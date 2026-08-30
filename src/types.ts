@@ -72,6 +72,12 @@ export interface ChhakaroCustomization {
   seatCoverPattern?: 'bandhani' | 'kathiyawadi_patch' | 'classic_brown';
 }
 
+/** What M1 actually stores per visited location — leaner than the unused PassportStamp. */
+export interface PassportStampRecord {
+  visitedAt: string;        // ISO date-time
+  kilometersDriven: number; // odometer reading at first visit
+}
+
 export interface GameProgress {
   coins: number;
   reputationStars: number;
@@ -84,6 +90,7 @@ export interface GameProgress {
   customization: ChhakaroCustomization;
   totalKm: number;
   lastLocationId: string;
+  stampMeta: Record<string, PassportStampRecord>;
 }
 
 export interface PassportStamp {

@@ -254,6 +254,7 @@ export default function App() {
       customization,
       totalKm,
       lastLocationId: currentLocation.id,
+      stampMeta: initial.stampMeta,
     });
   }, [
     coins,

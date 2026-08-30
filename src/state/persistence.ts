@@ -1,7 +1,7 @@
-import { GameProgress } from '../types';
+import { GameProgress, PassportStampRecord } from '../types';
 
 export const SAVE_KEY = 'chhakaro-gujarat-save-v1';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const DEFAULT_PROGRESS: GameProgress = {
   coins: 1200,
@@ -22,6 +22,7 @@ export const DEFAULT_PROGRESS: GameProgress = {
   },
   totalKm: 0,
   lastLocationId: 'rajkot',
+  stampMeta: {},
 };
 
 interface StoredSave {
@@ -33,6 +34,20 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+function isStampRecord(v: unknown): v is PassportStampRecord {
+  return isPlainObject(v) && typeof v.visitedAt === 'string' && typeof v.kilometersDriven === 'number';
+}
+
+/** Keep only well-formed stamp records; drop any malformed entry. */
+function sanitizeStampMeta(v: unknown): Record<string, PassportStampRecord> {
+  if (!isPlainObject(v)) return {};
+  const out: Record<string, PassportStampRecord> = {};
+  for (const [id, rec] of Object.entries(v)) {
+    if (isStampRecord(rec)) out[id] = { visitedAt: rec.visitedAt, kilometersDriven: rec.kilometersDriven };
+  }
+  return out;
+}
+
 export function loadProgress(): GameProgress {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -42,9 +57,9 @@ export function loadProgress(): GameProgress {
       return { ...DEFAULT_PROGRESS };
     }
     // Validate every field against its default. A partial or type-mangled save must never
-    // crash the app or poison a field downstream (undefined subfields → NaN). The two known
-    // nested objects are deep-merged onto defaults so a partial quizScore/customization in
-    // the save keeps its sibling subfields.
+    // crash the app or poison a field downstream (undefined subfields → NaN). quizScore /
+    // customization are deep-merged onto defaults so a partial one keeps its sibling
+    // subfields; stampMeta is sanitized entry-by-entry (malformed records dropped).
     const p = parsed.progress as Partial<GameProgress>;
     return {
       coins: typeof p.coins === 'number' && Number.isFinite(p.coins) ? p.coins : DEFAULT_PROGRESS.coins,
@@ -65,6 +80,7 @@ export function loadProgress(): GameProgress {
         : DEFAULT_PROGRESS.customization,
       totalKm: typeof p.totalKm === 'number' && Number.isFinite(p.totalKm) ? p.totalKm : DEFAULT_PROGRESS.totalKm,
       lastLocationId: typeof p.lastLocationId === 'string' ? p.lastLocationId : DEFAULT_PROGRESS.lastLocationId,
+      stampMeta: sanitizeStampMeta(p.stampMeta),
     };
   } catch {
     return { ...DEFAULT_PROGRESS };
