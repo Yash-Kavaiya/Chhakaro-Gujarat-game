@@ -6,7 +6,7 @@ export const GUJARATI_SOUVENIRS: SouvenirItem[] = [
     nameGujarati: 'પાટણનું બેવડ ઇક્ત પટોળું',
     nameEnglish: 'Patan Double Ikkat Patola',
     region: 'ઉત્તર ગુજરાત',
-    locationId: 'patn',
+    locationId: 'patan_modhera',
     priceCoins: 350,
     iconEmoji: '🧣',
     descriptionGujarati: '"પડી પટોળે ભાત, ફાટે પણ ફીટે નહિ" — કુદરતી રંગોથી વર્ષોની મહેનતે વણાટ થતી વિશ્વપ્રસિદ્ધ સિલ્ક સાડી.',

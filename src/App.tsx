@@ -26,8 +26,8 @@ import {
   SouvenirItem,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
-import { GUJARATI_PASSENGERS, GUJARAT_MISSIONS } from './data/passengers';
-import { GUJARAT_SOUVENIRS } from './data/souvenirs';
+import { GUJARAT_MISSIONS } from './data/missions';
+import { GUJARATI_SOUVENIRS } from './data/souvenirs';
 import { soundManager } from './audio/SoundManager';
 
 export default function App() {

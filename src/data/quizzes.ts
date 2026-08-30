@@ -3,7 +3,7 @@ import { CulturalQuiz } from '../types';
 export const GUJARATI_QUIZZES: CulturalQuiz[] = [
   {
     id: 'quiz_patn_vav',
-    locationId: 'patn',
+    locationId: 'patan_modhera',
     locationNameGujarati: 'પાટણ',
     questionGujarati: 'પાટણની વિશ્વપ્રસિદ્ધ "રાણકી વાવ" કઈ રાણીએ પોતાના પતિની યાદમાં બંધાવી હતી?',
     optionsGujarati: [
