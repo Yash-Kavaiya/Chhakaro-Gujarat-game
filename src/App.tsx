@@ -280,16 +280,22 @@ export default function App() {
     }
   };
 
-  const handleAcceptPassenger = (passenger: PassengerData, mission: MissionData) => {
-    setActivePassenger(passenger);
+  const handleAcceptMission = (mission: MissionData) => {
+    const passenger = mission.passenger ?? null;
     setActiveMission(mission);
-    if (worldRef.current) {
-      worldRef.current.setPassenger(passenger);
-    }
+    setActivePassenger(passenger);
+    if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
     soundManager.playChime();
-    const promptMsg = `${passenger.nameGujarati} છકડામાં બેસી ગયા! તેમનું ગંતવ્ય: ${mission.dropLocationId}`;
-    setFloatingBanner(promptMsg);
-    soundManager.speakGujaratiTextFallback(`${passenger.nameGujarati} છકડામાં બેસી ગયા! ચાલો ${mission.dropLocationId} તરફ!`);
+    const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
+    setFloatingBanner(`${mission.titleGujarati} — ચાલો ${dest} તરફ!`);
+    soundManager.speakGujaratiTextFallback(`નવું મિશન: ${mission.titleGujarati}. ચાલો ${dest} તરફ!`);
+  };
+
+  const handleCancelMission = () => {
+    setActiveMission(null);
+    setActivePassenger(null);
+    if (worldRef.current) worldRef.current.setPassenger(null);
+    setFloatingBanner('મિશન રદ થયું.');
   };
 
   const handleBuySouvenir = (item: SouvenirItem) => {
@@ -487,12 +493,14 @@ export default function App() {
         isOpen={isMissionsOpen}
         onClose={() => setIsMissionsOpen(false)}
         currentLocation={currentLocation}
-        activePassenger={activePassenger}
+        availableMissions={GUJARAT_MISSIONS}
         activeMission={activeMission}
+        activePassenger={activePassenger}
         coins={coins}
         reputationStars={reputationStars}
         completedMissions={completedMissions}
-        onAcceptPassenger={handleAcceptPassenger}
+        onAcceptMission={handleAcceptMission}
+        onCancelMission={handleCancelMission}
       />
 
       <SouvenirShopModal

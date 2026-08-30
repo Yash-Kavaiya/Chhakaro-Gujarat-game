@@ -1,34 +1,40 @@
 import React, { useState } from 'react';
 import { X, MapPin, Users, Award, Clock, AlertTriangle, CheckCircle, Navigation, Play, UserCheck } from 'lucide-react';
 import { MissionData, PassengerData, LocationData } from '../types';
-import { GUJARAT_MISSIONS, GUJARATI_PASSENGERS } from '../data/missions';
+import { GUJARATI_PASSENGERS } from '../data/missions';
 import { soundManager } from '../audio/SoundManager';
 
 interface PassengerMissionModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentLocation: LocationData;
+  availableMissions: MissionData[];
   activeMission: MissionData | null;
-  onAcceptMission: (mission: MissionData) => void;
-  onCancelMission: () => void;
+  activePassenger: PassengerData | null;
   coins: number;
   reputationStars: number;
-  completedMissionsCount: number;
+  completedMissions: string[];
+  onAcceptMission: (mission: MissionData) => void;
+  onCancelMission: () => void;
 }
 
 export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
   isOpen,
   onClose,
   currentLocation,
+  availableMissions,
   activeMission,
-  onAcceptMission,
-  onCancelMission,
+  activePassenger,
   coins,
   reputationStars,
-  completedMissionsCount,
+  completedMissions,
+  onAcceptMission,
+  onCancelMission,
 }) => {
   const [selectedTab, setSelectedTab] = useState<'missions' | 'passengers'>('missions');
-  const [selectedMission, setSelectedMission] = useState<MissionData | null>(activeMission || GUJARAT_MISSIONS[0]);
+  const [selectedMission, setSelectedMission] = useState<MissionData | null>(
+    activeMission ?? availableMissions[0] ?? null
+  );
 
   if (!isOpen) return null;
 
@@ -77,7 +83,7 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
             }`}
           >
             <Award size={18} />
-            <span>ઉપલબ્ધ મિશન્સ ({GUJARAT_MISSIONS.length})</span>
+            <span>ઉપલબ્ધ મિશન્સ ({availableMissions.length})</span>
           </button>
           <button
             onClick={() => setSelectedTab('passengers')}
@@ -98,7 +104,7 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
             <>
               {/* Mission List (Left Column) */}
               <div className="md:col-span-5 space-y-3 max-h-[58vh] overflow-y-auto pr-2">
-                {GUJARAT_MISSIONS.map((mission) => {
+                {availableMissions.map((mission) => {
                   const isCurrentActive = activeMission?.id === mission.id;
                   const isSelected = selectedMission?.id === mission.id;
 
@@ -217,8 +223,31 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
                 )}
 
                 {/* Action Buttons */}
-                <div className="pt-4 border-t border-slate-800 flex items-center justify-between">
-                  {activeMission?.id === selectedMission?.id ? (
+                <div className="pt-4 border-t border-slate-800 space-y-3">
+                  {activeMission && (
+                    <p className="text-[11px] text-amber-300/80 text-center">
+                      હાલમાં એક મિશન ચાલુ છે: <b>{activeMission.titleGujarati}</b>. નવું સ્વીકારતાં પહેલાં તેને પૂર્ણ કરો અથવા રદ કરો.
+                    </p>
+                  )}
+                  <button
+                    disabled={activeMission !== null}
+                    onClick={() => {
+                      if (selectedMission && activeMission === null) {
+                        onAcceptMission(selectedMission);
+                        soundManager.playHorn(0);
+                        onClose();
+                      }
+                    }}
+                    className={`w-full py-3.5 px-6 rounded-2xl font-bold text-sm transition flex items-center justify-center space-x-2 ${
+                      activeMission !== null
+                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 shadow-xl shadow-amber-500/20'
+                    }`}
+                  >
+                    <Play size={18} />
+                    <span>સવારી સ્વીકારો અને નીકળો (Accept Mission)</span>
+                  </button>
+                  {activeMission && (
                     <button
                       onClick={() => {
                         onCancelMission();
@@ -227,21 +256,7 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
                       className="w-full py-3.5 px-6 rounded-2xl bg-red-600/80 hover:bg-red-600 font-bold text-sm text-white transition flex items-center justify-center space-x-2 shadow-lg"
                     >
                       <X size={18} />
-                      <span>મિશન રદ કરો (Cancel Mission)</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        if (selectedMission) {
-                          onAcceptMission(selectedMission);
-                          soundManager.playHorn(0);
-                          onClose();
-                        }
-                      }}
-                      className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 font-bold text-sm text-slate-950 transition flex items-center justify-center space-x-2 shadow-xl shadow-amber-500/20"
-                    >
-                      <Play size={18} />
-                      <span>સવારી સ્વીકારો અને નીકળો (Accept Mission)</span>
+                      <span>મિશન રદ કરો (Cancel)</span>
                     </button>
                   )}
                 </div>
@@ -285,9 +300,15 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
         {/* Footer Summary */}
         <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-6">
           <div className="flex items-center space-x-4">
-            <span>સફળતાપૂર્વક પૂર્ણ થયેલ મિશન્સ: <b className="text-amber-300">{completedMissionsCount}</b></span>
+            <span>સફળતાપૂર્વક પૂર્ણ થયેલ મિશન્સ: <b className="text-amber-300">{completedMissions.length}</b></span>
             <span>|</span>
             <span>હાલનું લોકેશન: <b className="text-slate-200">{currentLocation.nameGujarati}</b></span>
+            {activePassenger && (
+              <>
+                <span>|</span>
+                <span>છકડામાં સવાર: <b className="text-amber-200">{activePassenger.nameGujarati}</b></span>
+              </>
+            )}
           </div>
           <button onClick={onClose} className="text-amber-400 font-bold hover:underline">
             પાછા ફરો (Back to Driving)
