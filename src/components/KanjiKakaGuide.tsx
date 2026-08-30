@@ -46,6 +46,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -95,7 +96,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
-      alert('તમારા બ્રાઉઝરમાં માઇક્રોફોન સ્પીચ રેકગ્નિશન સપોર્ટેડ નથી.');
+      setMicError('તમારા બ્રાઉઝરમાં માઇક્રોફોન સપોર્ટેડ નથી.');
       return;
     }
     if (isListening) {
@@ -104,6 +105,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
     } else {
       try {
         recognitionRef.current.start();
+        setMicError(null);
         setIsListening(true);
       } catch (err) {
         console.error('Speech recognition start failed', err);
@@ -280,6 +282,24 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
             </button>
           ))}
         </div>
+
+        {/* Mic error notice — local, dismissible (replaces the old blocking dialog) */}
+        {micError && (
+          <div
+            role="alert"
+            className="mx-3 sm:mx-4 mt-2 -mb-1 flex items-center justify-between gap-3 rounded-xl border border-red-500/50 bg-red-950/70 px-3 py-2 text-xs font-semibold text-red-200"
+          >
+            <span>{micError}</span>
+            <button
+              onClick={() => setMicError(null)}
+              className="shrink-0 rounded-lg bg-red-500/20 p-1 text-red-200 hover:bg-red-500/40 transition-colors"
+              title="બંધ કરો"
+              aria-label="બંધ કરો"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Input Bar */}
         <div className="p-3 sm:p-4 bg-slate-900 border-t border-amber-600/40 flex items-center gap-2">
