@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LocationData } from '../types';
+import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
 
 interface RoadSegment {
   fromLoc: LocationData;
@@ -9,6 +10,7 @@ interface RoadSegment {
   angle: number;
   distance: number;
   highwayCode: string;
+  width: number;
 }
 
 export class RoadSignBuilder {
@@ -73,32 +75,17 @@ export class RoadSignBuilder {
    * Build complete highway road sign and milestone network along all connected roads
    */
   public buildAllRoadSigns(locations: LocationData[], parentGroup: THREE.Object3D) {
-    const segments: RoadSegment[] = [];
-
-    // Derive segments connecting adjacent locations in circuit
-    for (let i = 0; i < locations.length; i++) {
-      const fromLoc = locations[i];
-      const toLoc = locations[(i + 1) % locations.length];
-
-      const dx = toLoc.worldPosition.x - fromLoc.worldPosition.x;
-      const dz = toLoc.worldPosition.z - fromLoc.worldPosition.z;
-      const dist = Math.sqrt(dx * dx + dz * dz);
-      const angle = Math.atan2(dx, dz);
-
-      // Assign realistic Gujarat National & State highway codes
-      const highwayCodes = ['NH-27', 'NH-51', 'NH-8D', 'GJ-SH-26', 'NH-48', 'GJ-SH-17', 'NH-151', 'NH-56'];
-      const highwayCode = highwayCodes[i % highwayCodes.length];
-
-      segments.push({
-        fromLoc,
-        toLoc,
-        startPos: fromLoc.worldPosition,
-        endPos: toLoc.worldPosition,
-        angle,
-        distance: dist,
-        highwayCode,
-      });
-    }
+    const resolved = getResolvedHighwaySegments();
+    const segments: RoadSegment[] = resolved.map((r) => ({
+      fromLoc: r.fromLoc,
+      toLoc: r.toLoc,
+      startPos: r.start,
+      endPos: r.end,
+      angle: r.angle,
+      distance: r.distance,
+      highwayCode: r.corridor.code,
+      width: r.width,
+    }));
 
     // Populate road signs along each highway segment
     segments.forEach((seg) => {
@@ -115,15 +102,16 @@ export class RoadSignBuilder {
    * Populate signs along a single road segment at calculated distances
    */
   private populateSegmentSigns(seg: RoadSegment, parent: THREE.Object3D) {
-    const { fromLoc, toLoc, startPos, endPos, angle, distance, highwayCode } = seg;
+    const { fromLoc, toLoc, startPos, endPos, angle, distance, highwayCode, width } = seg;
     const dx = endPos.x - startPos.x;
     const dz = endPos.z - startPos.z;
 
-    // Road shoulder offset vector (perpendicular to road axis)
-    const shoulderRightX = Math.cos(angle) * 5.8;
-    const shoulderRightZ = -Math.sin(angle) * 5.8;
-    const shoulderLeftX = -Math.cos(angle) * 5.8;
-    const shoulderLeftZ = Math.sin(angle) * 5.8;
+    // Road shoulder offset vector (perpendicular to road axis, outside asphalt)
+    const shoulderDist = width / 2 + 2.2;
+    const shoulderRightX = Math.cos(angle) * shoulderDist;
+    const shoulderRightZ = -Math.sin(angle) * shoulderDist;
+    const shoulderLeftX = -Math.cos(angle) * shoulderDist;
+    const shoulderLeftZ = Math.sin(angle) * shoulderDist;
 
     // 1. Initial Highway Route & Distance Sign at 20% along segment
     const t1 = 0.22;
@@ -180,12 +168,12 @@ export class RoadSignBuilder {
       highwayCode
     );
 
-    // 4. Milestone concrete pillars (કિલોમીટર પથ્થર) every 30-40 world units along road shoulder
+    // 4. Milestone concrete pillars (કિલોમીટર પથ્થર) every 35-45 world units along road shoulder
     const milestoneCount = Math.floor(distance / 45);
     for (let m = 1; m <= milestoneCount; m++) {
       const tm = m / (milestoneCount + 1);
-      const mx = startPos.x + dx * tm + shoulderRightX * 0.92;
-      const mz = startPos.z + dz * tm + shoulderRightZ * 0.92;
+      const mx = startPos.x + dx * tm + shoulderRightX * 0.95;
+      const mz = startPos.z + dz * tm + shoulderRightZ * 0.95;
       const kmRemaining = Math.max(1, Math.round((1 - tm) * (distance / 5)));
 
       const isNational = m % 2 === 0;
@@ -395,8 +383,8 @@ export class RoadSignBuilder {
     group.position.set(x, 0, z);
     group.rotation.y = -roadAngle;
 
-    const spanWidth = 12.0;
-    const gantryHeight = 6.8;
+    const spanWidth = 16.0;
+    const gantryHeight = 7.0;
 
     // Left Pillar Post
     const leftPost = new THREE.Mesh(

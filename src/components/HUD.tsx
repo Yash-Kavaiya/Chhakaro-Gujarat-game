@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Compass,
   Map as MapIcon,
@@ -24,8 +24,13 @@ import {
   AlertTriangle,
   Flame,
   Fuel,
+  Lock,
+  Unlock,
+  RefreshCw,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
-import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData } from '../types';
+import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter } from '../types';
 import { SpeedometerGauge } from './SpeedometerGauge';
 import { InCarRadio } from './InCarRadio';
 
@@ -44,6 +49,7 @@ interface HUDProps {
   activePassenger?: PassengerData | null;
   activeMission?: MissionData | null;
   nearbyFacility?: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null;
+  nearbyEncounter?: RoadsideEncounter | null;
   coins: number;
   reputationStars: number;
   isMuted: boolean;
@@ -53,6 +59,8 @@ interface HUDProps {
   onToggleHazard?: () => void;
   onChangeCamera: () => void;
   onChangeWeather: () => void;
+  onToggleFreezeDay?: () => void;
+  onSetTimeFreezeMode?: (mode: TimeFreezeMode) => void;
   onOpenMap: () => void;
   onOpenPassport: () => void;
   onOpenFood: () => void;
@@ -65,6 +73,7 @@ interface HUDProps {
   onCapturePhoto: () => void;
   onRefuel?: () => void;
   onRepair?: () => void;
+  onInteractEncounter?: (encounter: RoadsideEncounter) => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -81,6 +90,7 @@ export const HUD: React.FC<HUDProps> = ({
   activePassenger,
   activeMission,
   nearbyFacility,
+  nearbyEncounter,
   coins,
   reputationStars,
   isMuted,
@@ -90,6 +100,8 @@ export const HUD: React.FC<HUDProps> = ({
   onToggleHazard,
   onChangeCamera,
   onChangeWeather,
+  onToggleFreezeDay,
+  onSetTimeFreezeMode,
   onOpenMap,
   onOpenPassport,
   onOpenFood,
@@ -102,7 +114,28 @@ export const HUD: React.FC<HUDProps> = ({
   onCapturePhoto,
   onRefuel,
   onRepair,
+  onInteractEncounter,
 }) => {
+  const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
+  const timeMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close time menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (timeMenuRef.current && !timeMenuRef.current.contains(e.target as Node)) {
+        setIsTimeMenuOpen(false);
+      }
+    };
+    if (isTimeMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isTimeMenuOpen]);
+
+  const isDayFrozen = timeOfDay?.isFrozen && timeOfDay?.freezeMode === 'day';
+  const isAnyTimeFrozen = timeOfDay?.isFrozen;
   return (
     <div id="game-hud" className="absolute inset-0 pointer-events-none flex flex-col justify-between p-3 sm:p-5 select-none font-sans">
       {/* Top Header Bar */}
@@ -139,32 +172,188 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           </div>
 
-          {/* Dynamic Highway Time of Day Clock */}
+          {/* Dynamic Highway Time of Day Clock with Freeze Day option */}
           {timeOfDay && (
-            <div
-              id="hud-time-of-day-badge"
-              className="bg-slate-900/85 backdrop-blur-md border border-amber-400/40 hover:border-amber-400 rounded-2xl px-3.5 py-2 shadow-xl flex items-center gap-2.5 text-xs text-amber-50 transition-all"
-              title="પ્રવાસ અંતર અનુસાર બદલાતો વાસ્તવિક સમય"
-            >
-              <div className="text-2xl animate-pulse">
-                {timeOfDay.phase === 'sunrise' && '🌅'}
-                {timeOfDay.phase === 'day' && '☀️'}
-                {timeOfDay.phase === 'sunset' && '🌇'}
-                {timeOfDay.phase === 'dusk' && '🌆'}
-                {timeOfDay.phase === 'night' && '🌌'}
-                {timeOfDay.phase === 'dawn' && '✨'}
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5 font-extrabold text-amber-300 text-xs">
-                  <span>{timeOfDay.formattedTime}</span>
-                  <span className="text-slate-500">•</span>
-                  <span className="text-amber-100 font-serif">{timeOfDay.phaseGujarati}</span>
+            <div className="relative pointer-events-auto" ref={timeMenuRef}>
+              <button
+                id="hud-time-of-day-badge"
+                onClick={() => setIsTimeMenuOpen((prev) => !prev)}
+                className={`bg-slate-900/90 backdrop-blur-md border rounded-2xl px-3.5 py-2 shadow-xl flex items-center gap-2.5 text-xs text-amber-50 transition-all cursor-pointer select-none text-left ${
+                  isDayFrozen
+                    ? 'border-amber-400 bg-amber-950/40 ring-2 ring-amber-400/30'
+                    : isAnyTimeFrozen
+                    ? 'border-indigo-400 bg-indigo-950/40'
+                    : 'border-amber-400/40 hover:border-amber-400'
+                }`}
+                title="દિવસ ફ્રીઝ કરવા અથવા સમય બદલવા ક્લિક કરો (Shortcut: T)"
+              >
+                <div className="text-2xl animate-pulse">
+                  {timeOfDay.phase === 'sunrise' && '🌅'}
+                  {timeOfDay.phase === 'day' && '☀️'}
+                  {timeOfDay.phase === 'sunset' && '🌇'}
+                  {timeOfDay.phase === 'dusk' && '🌆'}
+                  {timeOfDay.phase === 'night' && '🌌'}
+                  {timeOfDay.phase === 'dawn' && '✨'}
                 </div>
-                <div className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-amber-400/70" />
-                  <span>પ્રવાસ આધારીત સૂર્ય ચક્ર</span>
+                <div>
+                  <div className="flex items-center gap-1.5 font-extrabold text-amber-300 text-xs">
+                    <span>{timeOfDay.formattedTime}</span>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-amber-100 font-serif">{timeOfDay.phaseGujarati}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-300 font-medium flex items-center gap-1 mt-0.5">
+                    {isDayFrozen ? (
+                      <span className="flex items-center gap-1 text-amber-300 font-bold bg-amber-500/20 px-1.5 py-0.2 rounded border border-amber-400/40">
+                        <Lock className="w-2.5 h-2.5 text-amber-400" />
+                        <span>દિવસ ફ્રીઝ (Day Locked)</span>
+                      </span>
+                    ) : isAnyTimeFrozen ? (
+                      <span className="flex items-center gap-1 text-indigo-300 font-bold bg-indigo-500/20 px-1.5 py-0.2 rounded border border-indigo-400/40">
+                        <Lock className="w-2.5 h-2.5 text-indigo-400" />
+                        <span>સમય ફ્રીઝ (Locked)</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-emerald-400">
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin text-emerald-400" style={{ animationDuration: '6s' }} />
+                        <span>ગતિશીલ ૨૪ કલાક ચક્ર</span>
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-amber-400/70 transition-transform ${isTimeMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Quick Time Preset Selector Dropdown */}
+              {isTimeMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 z-50 w-72 bg-slate-950/95 backdrop-blur-xl border-2 border-amber-500/70 rounded-2xl shadow-2xl p-2.5 flex flex-col gap-1 text-xs text-white animate-fadeIn">
+                  <div className="px-2.5 py-1 text-[11px] font-black text-amber-400 uppercase tracking-wider border-b border-slate-800 flex items-center justify-between">
+                    <span>સમય અને પ્રકાશ મોડ (Lighting)</span>
+                    <span className="text-[9px] text-slate-400">કીબોર્ડ: T</span>
+                  </div>
+
+                  {/* Freeze Day Option - High Priority */}
+                  <button
+                    id="time-opt-freeze-day"
+                    onClick={() => {
+                      onSetTimeFreezeMode?.('day');
+                      setIsTimeMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-xl transition-all ${
+                      isDayFrozen
+                        ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                        : 'hover:bg-amber-500/20 text-amber-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">☀️</span>
+                      <div className="text-left">
+                        <div className="font-bold flex items-center gap-1">
+                          <span>દિવસ ફ્રીઝ (Freeze Day)</span>
+                          <span className="text-[10px] px-1 rounded bg-amber-400/30 text-amber-900 font-extrabold">લોકપ્રિય</span>
+                        </div>
+                        <div className={`text-[10px] ${isDayFrozen ? 'text-slate-900' : 'text-slate-400'}`}>
+                          બપોરનો તેજસ્વી તડકો (12:30 PM)
+                        </div>
+                      </div>
+                    </div>
+                    {isDayFrozen && <Check className="w-4 h-4 text-slate-950 stroke-[3]" />}
+                  </button>
+
+                  {/* Dynamic 24h cycle */}
+                  <button
+                    id="time-opt-dynamic"
+                    onClick={() => {
+                      onSetTimeFreezeMode?.('dynamic');
+                      setIsTimeMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-xl transition-all ${
+                      !isAnyTimeFrozen
+                        ? 'bg-emerald-600 text-white font-black shadow-md'
+                        : 'hover:bg-emerald-500/20 text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🔄</span>
+                      <div className="text-left">
+                        <div className="font-bold">ગતિશીલ ૨૪ કલાક ચક્ર (Dynamic)</div>
+                        <div className={`text-[10px] ${!isAnyTimeFrozen ? 'text-emerald-100' : 'text-slate-400'}`}>
+                          ગાડી ચલાવવાથી સમય બદલાય
+                        </div>
+                      </div>
+                    </div>
+                    {!isAnyTimeFrozen && <Check className="w-4 h-4 text-white stroke-[3]" />}
+                  </button>
+
+                  {/* Sunrise */}
+                  <button
+                    id="time-opt-sunrise"
+                    onClick={() => {
+                      onSetTimeFreezeMode?.('sunrise');
+                      setIsTimeMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-xl transition-all ${
+                      timeOfDay.freezeMode === 'sunrise' && isAnyTimeFrozen
+                        ? 'bg-orange-500 text-slate-950 font-black'
+                        : 'hover:bg-orange-500/20 text-orange-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🌅</span>
+                      <div className="text-left">
+                        <div className="font-bold">સૂર્યોદય ફ્રીઝ (Sunrise / Dawn)</div>
+                        <div className="text-[10px] text-slate-400">સોનેરી સવાર (06:00 AM)</div>
+                      </div>
+                    </div>
+                    {timeOfDay.freezeMode === 'sunrise' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
+                  </button>
+
+                  {/* Sunset */}
+                  <button
+                    id="time-opt-sunset"
+                    onClick={() => {
+                      onSetTimeFreezeMode?.('sunset');
+                      setIsTimeMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-xl transition-all ${
+                      timeOfDay.freezeMode === 'sunset' && isAnyTimeFrozen
+                        ? 'bg-rose-600 text-white font-black'
+                        : 'hover:bg-rose-500/20 text-rose-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🌇</span>
+                      <div className="text-left">
+                        <div className="font-bold">સંધ્યાકાળ ફ્રીઝ (Golden Sunset)</div>
+                        <div className="text-[10px] text-slate-400">લાલચોળ સાંજ (07:15 PM)</div>
+                      </div>
+                    </div>
+                    {timeOfDay.freezeMode === 'sunset' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
+                  </button>
+
+                  {/* Night */}
+                  <button
+                    id="time-opt-night"
+                    onClick={() => {
+                      onSetTimeFreezeMode?.('night');
+                      setIsTimeMenuOpen(false);
+                    }}
+                    className={`flex items-center justify-between p-2 rounded-xl transition-all ${
+                      timeOfDay.freezeMode === 'night' && isAnyTimeFrozen
+                        ? 'bg-indigo-600 text-white font-black'
+                        : 'hover:bg-indigo-500/20 text-indigo-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🌌</span>
+                      <div className="text-left">
+                        <div className="font-bold">ચાંદની રાત ફ્રીઝ (Night)</div>
+                        <div className="text-[10px] text-slate-400">તારા જડિત રાત્રિ (10:30 PM)</div>
+                      </div>
+                    </div>
+                    {timeOfDay.freezeMode === 'night' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -230,6 +419,30 @@ export const HUD: React.FC<HUDProps> = ({
               <span className="text-base">👳🏽‍♂️</span>
               <span>કાનજી કાકો</span>
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            </button>
+
+            {/* Quick Freeze Day Toggle Button */}
+            <button
+              id="hud-freeze-day-btn"
+              onClick={onToggleFreezeDay}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                isDayFrozen
+                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 border border-amber-300 shadow-lg shadow-amber-500/20'
+                  : 'bg-slate-800/80 hover:bg-slate-700 text-amber-400 border border-amber-500/30'
+              }`}
+              title={isDayFrozen ? 'દિવસ ફ્રીઝ ચાલુ છે - ક્લિક કરી ગતિશીલ ચક્ર શરૂ કરો (T key)' : 'દિવસ ફ્રીઝ કરો (Freeze Day - T key)'}
+            >
+              {isDayFrozen ? (
+                <>
+                  <Lock className="w-3.5 h-3.5 text-slate-950" />
+                  <span className="text-xs">☀️ દિવસ ફ્રીઝ</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs hidden sm:inline">દિવસ ફ્રીઝ</span>
+                </>
+              )}
             </button>
 
             {/* Weather Toggle */}
@@ -328,6 +541,31 @@ export const HUD: React.FC<HUDProps> = ({
                 પંચર રિપેર (₹૨૦૦)
               </button>
             )}
+          </div>
+        )}
+
+        {/* Roadside Encounter Prompt (Ganthiya / Tea Stall) */}
+        {nearbyEncounter && (
+          <div className="bg-slate-950/95 border-2 border-amber-400 p-3.5 sm:p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-3 animate-pulse w-full">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="text-3xl sm:text-4xl shrink-0">{nearbyEncounter.emoji}</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-black text-[10px] uppercase tracking-wider border border-amber-400/40 shrink-0">
+                    {nearbyEncounter.type === 'tea_stall' ? '🫖 કડક ચા સ્ટોપ' : '🥨 કાઠિયાવાડી વાનગી'}
+                  </span>
+                  <h4 className="font-black text-amber-200 text-sm truncate">{nearbyEncounter.nameGujarati}</h4>
+                </div>
+                <p className="text-xs text-slate-300 truncate mt-0.5 italic">"{nearbyEncounter.kakaDialogue}"</p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => onInteractEncounter?.(nearbyEncounter)}
+              className="py-2 px-3.5 sm:py-2.5 sm:px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 font-black text-xs text-slate-950 whitespace-nowrap shadow-lg flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
+            >
+              <span>ઉભા રહો & ચાખો (E)</span>
+            </button>
           </div>
         )}
 

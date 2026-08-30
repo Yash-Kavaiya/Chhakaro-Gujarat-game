@@ -23,10 +23,12 @@ export const GujaratMapModal: React.FC<GujaratMapModalProps> = ({
 
   if (!isOpen) return null;
 
+  const safeVisited = Array.isArray(visitedLocations) ? visitedLocations : [];
+  const allLocations = Array.isArray(GUJARAT_LOCATIONS) ? GUJARAT_LOCATIONS : [];
   const filteredLocations =
     selectedRegion === 'all'
-      ? GUJARAT_LOCATIONS
-      : GUJARAT_LOCATIONS.filter((l) => l.region === selectedRegion);
+      ? allLocations
+      : allLocations.filter((l) => l.region === selectedRegion);
 
   const regions: { id: RegionType | 'all'; label: string }[] = [
     { id: 'all', label: 'આખું ગુજરાત (All)' },
@@ -82,9 +84,9 @@ export const GujaratMapModal: React.FC<GujaratMapModalProps> = ({
           {/* Left / Top: Location List */}
           <div className="md:col-span-5 border-r border-slate-800 overflow-y-auto p-3 space-y-2 bg-slate-900/50">
             {filteredLocations.map((loc) => {
-              const isCurrent = loc.id === currentLocation.id;
-              const isVisited = visitedLocations.includes(loc.id);
-              const isSelected = loc.id === activeLoc.id;
+              const isCurrent = loc.id === currentLocation?.id;
+              const isVisited = safeVisited.includes(loc.id);
+              const isSelected = loc.id === activeLoc?.id;
 
               return (
                 <div

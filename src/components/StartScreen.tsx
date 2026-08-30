@@ -64,10 +64,14 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
         </div>
 
         {/* Controls Summary */}
-        <div className="w-full bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+        <div className="w-full bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">
           <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
             <div className="font-bold text-amber-400">W / A / S / D</div>
             <div className="text-[10px] text-slate-400">છકડો ચલાવો</div>
+          </div>
+          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+            <div className="font-bold text-amber-400">T (દિવસ ફ્રીઝ)</div>
+            <div className="text-[10px] text-amber-300 font-semibold">કાયમી તડકો / સમય</div>
           </div>
           <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
             <div className="font-bold text-amber-400">H (હોર્ન)</div>
@@ -77,7 +81,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
             <div className="font-bold text-amber-400">C (કેમેરા)</div>
             <div className="text-[10px] text-slate-400">૫ કેમેરા એન્ગલ</div>
           </div>
-          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800">
+          <div className="p-2 rounded-xl bg-slate-900 border border-slate-800 col-span-2 sm:col-span-1">
             <div className="font-bold text-amber-400">👳🏽‍♂️ કાનજી કાકો</div>
             <div className="text-[10px] text-slate-400">AI ઓડિયો ગાઈડ</div>
           </div>

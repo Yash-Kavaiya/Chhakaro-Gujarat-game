@@ -35,6 +35,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
   };
 
   const isCorrect = selectedAnswer === quiz.correctAnswerIdx;
+  const options = Array.isArray(quiz.optionsGujarati) ? quiz.optionsGujarati : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
@@ -67,7 +68,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
           </p>
 
           <div className="space-y-2.5">
-            {quiz.optionsGujarati.map((option, idx) => {
+            {options.map((option, idx) => {
               let btnStyle = 'bg-slate-950/80 border-slate-800 hover:border-indigo-500/60 text-slate-200';
 
               if (isSubmitted) {
