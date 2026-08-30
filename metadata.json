@@ -1,0 +1,6 @@
+{
+  "name": "છકડામાં ગુજરાત - Chhakaro Gujarat 3D",
+  "description": "3D Drivable Gujarat Tour in an iconic Gujarati Chhakaro with Saurashtra circuit, famous landmarks, Kanji Kaka AI guide, Gujarati audio narration, and cultural exploration.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
