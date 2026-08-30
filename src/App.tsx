@@ -28,6 +28,7 @@ import {
   CulturalQuiz,
   TimeFreezeMode,
   RoadsideEncounter,
+  PassportStampRecord,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -37,6 +38,7 @@ import { soundManager } from './audio/SoundManager';
 import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
+import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -91,6 +93,15 @@ export default function App() {
   const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>(initial.collectedSouvenirs);
   const [completedMissions, setCompletedMissions] = useState<string[]>(initial.completedMissions);
   const [quizScore, setQuizScore] = useState(initial.quizScore);
+  const [stampMeta, setStampMeta] = useState<Record<string, PassportStampRecord>>(initial.stampMeta);
+
+  // Mirrors visitedLocations for recordVisit, which is called from the once-registered
+  // world.onLocationChange closure — a plain read of visitedLocations there would be frozen
+  // at its initial value and re-award coins on every zone re-entry.
+  const visitedLocationsRef = useRef<string[]>(initial.visitedLocations);
+  useEffect(() => {
+    visitedLocationsRef.current = visitedLocations;
+  }, [visitedLocations]);
 
   // Derived quiz for current location
   const currentQuiz: CulturalQuiz | null =
@@ -137,8 +148,26 @@ export default function App() {
   const [inspectingLandmark, setInspectingLandmark] = useState<LocationData | null>(null);
   const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
 
-  // Proactive Kanji Kaka Narration banner state
-  const [floatingBanner, setFloatingBanner] = useState<string | null>(null);
+  // The single reward / event feedback channel. Every path that used to pair an ad-hoc
+  // setFloatingBanner(...) with a loose soundManager.* call now calls notify() — one banner
+  // style, one sound per tone. Uses only refs + the stable setter, so it is safe to call
+  // from the once-registered world callbacks.
+  const [notice, setNotice] = useState<NotifyMessage | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeSeq = useRef(0);
+
+  const notify = ({ text, tone = 'info', speak = true, ttlMs = 6000 }: NotifyOptions) => {
+    noticeSeq.current += 1;
+    setNotice({ id: noticeSeq.current, text, tone });
+    const s = toneSound(tone);
+    if (s === 'chime') soundManager.playChime();
+    else if (s === 'horn') soundManager.playHorn(1);
+    if (speak) soundManager.speakGujaratiTextFallback(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), ttlMs);
+  };
+
+  useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
   // Initialize Three.js Game World
   useEffect(() => {
@@ -181,7 +210,7 @@ export default function App() {
 
     world.onLocationChange = (loc) => {
       setCurrentLocation(loc);
-      markLocationVisited(loc.id);
+      recordVisit(loc.id);
       checkMissionCompletion(loc.id);
     };
 
@@ -197,12 +226,14 @@ export default function App() {
       } else if (key === 't') {
         if (worldRef.current) {
           const isFrozen = worldRef.current.toggleFreezeDay();
-          if (isFrozen) {
-            setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તડકો લૉક થયો (Day Frozen)');
-          } else {
-            setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક ચક્ર શરૂ થયું (Dynamic Cycle)');
-          }
-          setTimeout(() => setFloatingBanner(null), 3000);
+          notify({
+            text: isFrozen
+              ? '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો લૉક થયો (Day Frozen)'
+              : '🔄 ગતિશીલ ૨૪-કલાક ચક્ર શરૂ થયું (Dynamic Cycle)',
+            tone: 'info',
+            speak: false,
+            ttlMs: 3000,
+          });
         }
       } else if (key === 'e') {
         if (world.nearbyEncounter) {
@@ -231,8 +262,10 @@ export default function App() {
     const earned = evaluateAchievements({ visitedLocations, discoveredFoods }) || [];
     const added = earned.filter((id) => !(unlockedAchievements || []).includes(id));
     if (added.length === 0) return;
+    // playAchievementSound is distinct from the reward chime, so keep it and pass a silent
+    // tone rather than letting notify double the audio.
     soundManager.playAchievementSound();
-    setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);
+    notify({ text: `🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`, tone: 'info', speak: false });
     // Union, never wholesale-replace: an id in the saved set that a future renamed/removed
     // rule no longer reproduces must not be silently dropped.
     setUnlockedAchievements((prev) => [...new Set([...prev, ...earned])]);
@@ -254,6 +287,7 @@ export default function App() {
       customization,
       totalKm,
       lastLocationId: currentLocation.id,
+      stampMeta,
     });
   }, [
     coins,
@@ -267,6 +301,7 @@ export default function App() {
     customization,
     totalKm,
     currentLocation,
+    stampMeta,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -276,12 +311,25 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onHide);
   }, []);
 
-  // Handle location visit updates. These stay pure prev -> next reducers (safe against
-  // stale closures in the once-registered world callbacks). Achievement unlocking is a
-  // reaction to the committed progress — see the effect above — never a side effect
-  // inside a setState updater (React 19 StrictMode double-invokes updaters in dev).
-  const markLocationVisited = (locId: string) => {
+  // The single entry point for "the player is now at locId". Adds to visitedLocations and,
+  // on the FIRST visit only, writes the passport stamp (date + odometer) and awards a
+  // one-time reward. Safe to call from the stale world.onLocationChange closure: the guard
+  // reads visitedLocationsRef, and the ref is bumped synchronously so a paired callback
+  // fire (onLandmarkApproach + onLocationChange for the same arrival) is a no-op.
+  // Achievement unlocking stays a reaction to committed progress (see the effect above) —
+  // never a side effect inside a setState updater (StrictMode double-invokes updaters).
+  const FIRST_VISIT_COINS = 100;
+
+  const recordVisit = (locId: string) => {
+    if (visitedLocationsRef.current.includes(locId)) return;
+    const km = worldRef.current ? worldRef.current.totalDistanceDriven / 1000 : totalKm;
+    visitedLocationsRef.current = [...visitedLocationsRef.current, locId];
     setVisitedLocations((prev) => (prev.includes(locId) ? prev : [...prev, locId]));
+    setStampMeta((prev) =>
+      prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
+    );
+    setCoins((c) => c + FIRST_VISIT_COINS);
+    notify({ text: `📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`, tone: 'reward', speak: false });
   };
 
   const handleDiscoverFood = (foodId: string) => {
@@ -295,23 +343,19 @@ export default function App() {
     const coinsReward = encounter.rewardCoins ?? 35;
     setCoins((prev) => prev + coinsReward);
     setReputationStars((prev) => Math.min(5, prev + 1));
-    soundManager.playHorn();
     const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
-    setFloatingBanner(`🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`);
-    setTimeout(() => setFloatingBanner(null), 4500);
+    notify({
+      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`,
+      tone: 'reward',
+      speak: false,
+    });
     setActiveEncounterModal(null);
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
     const welcomeSpeech = `આપણે હવે ${loc.nameGujarati} પહોંચી ગયા છીએ! અહીં ${loc.famousFood} નો સ્વાદ લેવાનું ભૂલતા નહીં!`;
     setLastKakaNarration(welcomeSpeech);
-    setFloatingBanner(`📍 ${loc.nameGujarati}: ${loc.tagline}`);
-
-    soundManager.speakGujaratiTextFallback(welcomeSpeech);
-
-    setTimeout(() => {
-      setFloatingBanner(null);
-    }, 8000);
+    notify({ text: welcomeSpeech, tone: 'info', ttlMs: 8000 });
   };
 
   // Check if passenger mission arrived at destination. Invoked from the once-registered
@@ -332,9 +376,8 @@ export default function App() {
       setCompletedMissions((m) => [...m, mission.id]);
 
       const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
-      setFloatingBanner(`🎉 ${successMsg}`);
       soundManager.playAchievementSound();
-      soundManager.speakGujaratiTextFallback(successMsg);
+      notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
 
       // Clear passenger from vehicle
       setActivePassenger(null);
@@ -354,10 +397,8 @@ export default function App() {
     activeMissionRef.current = mission;
     activePassengerRef.current = passenger;
     if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
-    soundManager.playChime();
     const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
-    setFloatingBanner(`${mission.titleGujarati} — ચાલો ${dest} તરફ!`);
-    soundManager.speakGujaratiTextFallback(`નવું મિશન: ${mission.titleGujarati}. ચાલો ${dest} તરફ!`);
+    notify({ text: `${mission.titleGujarati} — ચાલો ${dest} તરફ!`, tone: 'reward' });
   };
 
   const handleCancelMission = () => {
@@ -366,7 +407,7 @@ export default function App() {
     activeMissionRef.current = null;
     activePassengerRef.current = null;
     if (worldRef.current) worldRef.current.setPassenger(null);
-    setFloatingBanner('મિશન રદ થયું.');
+    notify({ text: 'મિશન રદ થયું.', tone: 'info', speak: false });
   };
 
   const handleBuySouvenir = (souvenirId: string) => {
@@ -383,14 +424,13 @@ export default function App() {
     });
     if (!bought) return;
     setCoins((c) => c - item.priceCoins);
-    soundManager.playChime();
-    setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
+    notify({ text: `🛍️ ${item.nameGujarati} ખરીદ્યું!`, tone: 'reward', speak: false });
   };
 
   const handleQuizCorrect = (rewardCoins: number) => {
     setCoins((c) => c + rewardCoins);
     setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
-    setFloatingBanner(`સાચો જવાબ! +₹${rewardCoins}`);
+    notify({ text: `સાચો જવાબ! +₹${rewardCoins}`, tone: 'reward', speak: false });
   };
 
   const handleRefuel = () => {
@@ -399,7 +439,7 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.refuel(10);
       }
-      setFloatingBanner('⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!');
+      notify({ text: '⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!', tone: 'reward', speak: false });
     }
   };
 
@@ -409,13 +449,13 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.repairPunctureAndCool();
       }
-      setFloatingBanner('🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!');
+      notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
     }
   };
 
   const handleStartGame = (startLoc: LocationData) => {
     setCurrentLocation(startLoc);
-    markLocationVisited(startLoc.id);
+    recordVisit(startLoc.id);
     setIsGameStarted(true);
 
     soundManager.startEngine();
@@ -464,30 +504,28 @@ export default function App() {
   const handleToggleFreezeDay = () => {
     if (worldRef.current) {
       const isFrozen = worldRef.current.toggleFreezeDay();
-      if (isFrozen) {
-        setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તેજસ્વી તડકો લૉક થયો (Day Frozen)');
-      } else {
-        setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક સૂર્ય ચક્ર શરૂ થયું (Dynamic Cycle)');
-      }
-      setTimeout(() => setFloatingBanner(null), 3000);
+      notify({
+        text: isFrozen
+          ? '☀️ દિવસ ફ્રીઝ: બપોરનો તેજસ્વી તડકો લૉક થયો (Day Frozen)'
+          : '🔄 ગતિશીલ ૨૪-કલાક સૂર્ય ચક્ર શરૂ થયું (Dynamic Cycle)',
+        tone: 'info',
+        speak: false,
+        ttlMs: 3000,
+      });
     }
   };
 
   const handleSetTimeFreezeMode = (mode: TimeFreezeMode) => {
     if (worldRef.current) {
       worldRef.current.setTimeFreezeMode(mode);
-      if (mode === 'day') {
-        setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તડકો (Freeze Day - 12:30 PM)');
-      } else if (mode === 'dynamic') {
-        setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક સમય ચક્ર (Dynamic 24h Driving Cycle)');
-      } else if (mode === 'sunrise') {
-        setFloatingBanner('🌅 સૂર્યોદય ફ્રીઝ: સોનેરી સવાર (Freeze Sunrise - 06:00 AM)');
-      } else if (mode === 'sunset') {
-        setFloatingBanner('🌇 સંધ્યાકાળ ફ્રીઝ: લાલચોળ સાંજ (Freeze Sunset - 07:15 PM)');
-      } else if (mode === 'night') {
-        setFloatingBanner('🌌 ચાંદની રાત ફ્રીઝ: શાંત મધ્યરાત્રિ (Freeze Night - 10:30 PM)');
-      }
-      setTimeout(() => setFloatingBanner(null), 3000);
+      const text: Record<TimeFreezeMode, string> = {
+        day: '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો (Freeze Day - 12:30 PM)',
+        dynamic: '🔄 ગતિશીલ ૨૪-કલાક સમય ચક્ર (Dynamic 24h Driving Cycle)',
+        sunrise: '🌅 સૂર્યોદય ફ્રીઝ: સોનેરી સવાર (Freeze Sunrise - 06:00 AM)',
+        sunset: '🌇 સંધ્યાકાળ ફ્રીઝ: લાલચોળ સાંજ (Freeze Sunset - 07:15 PM)',
+        night: '🌌 ચાંદની રાત ફ્રીઝ: શાંત મધ્યરાત્રિ (Freeze Night - 10:30 PM)',
+      };
+      notify({ text: text[mode], tone: 'info', speak: false, ttlMs: 3000 });
     }
   };
 
@@ -495,7 +533,7 @@ export default function App() {
     if (worldRef.current) {
       worldRef.current.teleportToLocation(loc);
       setCurrentLocation(loc);
-      markLocationVisited(loc.id);
+      recordVisit(loc.id);
       triggerLandmarkWelcome(loc);
       checkMissionCompletion(loc.id);
     }
@@ -527,11 +565,21 @@ export default function App() {
       {/* Start / Launch Screen */}
       {!isGameStarted && <StartScreen onStartGame={handleStartGame} />}
 
-      {/* Floating Kaka / Mission Dialogue Banner */}
-      {isGameStarted && floatingBanner && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 border-2 border-amber-400 text-amber-300 px-5 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 animate-fade-in pointer-events-auto max-w-lg text-center">
+      {/* Unified reward / event notice — one style, tone-colored border. Keyed by notice.id
+          so a repeat notify() re-triggers the entry animation. */}
+      {isGameStarted && notice && (
+        <div
+          key={notice.id}
+          className={`absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 border-2 px-5 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 animate-fade-in pointer-events-auto max-w-lg text-center ${
+            notice.tone === 'reward'
+              ? 'border-amber-400 text-amber-300'
+              : notice.tone === 'warn'
+                ? 'border-rose-400 text-rose-300'
+                : 'border-slate-400 text-slate-200'
+          }`}
+        >
           <span className="text-2xl">👳🏽‍♂️</span>
-          <div className="text-xs sm:text-sm font-bold font-serif">{floatingBanner}</div>
+          <div className="text-xs sm:text-sm font-bold font-serif">{notice.text}</div>
           <button
             onClick={() => setIsKakaOpen(true)}
             className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-lg shrink-0"
@@ -549,6 +597,9 @@ export default function App() {
             rpm={rpm}
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
+            visitedLocations={visitedLocations}
+            worldRef={worldRef}
+            navTargetId={null}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
@@ -656,6 +707,7 @@ export default function App() {
         visitedLocations={visitedLocations}
         unlockedAchievements={unlockedAchievements}
         totalDistanceKm={totalKm}
+        stampMeta={stampMeta}
         onResetProgress={handleResetProgress}
       />
 
@@ -679,7 +731,8 @@ export default function App() {
           onClose={() => setInspectingLandmark(null)}
           location={inspectingLandmark}
           isVisited={visitedLocations.includes(inspectingLandmark.id)}
-          onMarkVisited={(locId) => markLocationVisited(locId)}
+          stampRecord={stampMeta[inspectingLandmark.id]}
+          onMarkVisited={(locId) => recordVisit(locId)}
           onOpenKaka={() => {
             setInspectingLandmark(null);
             setIsKakaOpen(true);

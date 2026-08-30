@@ -31,14 +31,20 @@ import {
   Check,
 } from 'lucide-react';
 import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { GameWorld } from '../world/GameWorld';
+import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
 import { InCarRadio } from './InCarRadio';
+import { MiniMap } from './MiniMap';
 
 interface HUDProps {
   speed: number;
   rpm: number;
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
+  visitedLocations: string[];
+  worldRef: React.RefObject<GameWorld | null>;
+  navTargetId: string | null;
   isEngineOn: boolean;
   isHeadlightOn: boolean;
   isHazardOn?: boolean;
@@ -81,6 +87,9 @@ export const HUD: React.FC<HUDProps> = ({
   rpm,
   currentLocation,
   nearbyLandmark,
+  visitedLocations,
+  worldRef,
+  navTargetId,
   isHeadlightOn,
   isHazardOn,
   cameraMode,
@@ -569,6 +578,25 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         )}
 
+        {/* Landmark-approach prompt — lighter than the facility CTA; the whole pill is the
+            action so it works for touch as well as the E key. */}
+        {nearbyLandmark && (() => {
+          const seen = visitedLocations.includes(nearbyLandmark.id);
+          return (
+            <button
+              onClick={() => onInspectLandmark(nearbyLandmark)}
+              className="bg-slate-900/80 border border-amber-500/50 hover:border-amber-400 px-4 py-2 rounded-2xl shadow-lg flex items-center gap-2.5 text-xs w-full pointer-events-auto transition-colors active:scale-[0.99]"
+            >
+              <span className="text-xl shrink-0">{seen ? '✓' : '⛳'}</span>
+              <span className="font-black text-amber-200 truncate">{nearbyLandmark.nameGujarati}</span>
+              <span className="text-slate-400 shrink-0">—</span>
+              <span className="text-slate-300 shrink-0">
+                <span className="font-bold text-amber-300">E</span> દબાવો · {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
+              </span>
+            </button>
+          );
+        })()}
+
         {/* Active Passenger In Chhakaro Info Card */}
         {activePassenger && (
           <div className="bg-slate-950/85 border border-amber-500/40 p-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs w-full">
@@ -584,10 +612,20 @@ export const HUD: React.FC<HUDProps> = ({
         )}
       </div>
 
-      {/* Bottom HUD: In-Car Radio (Left) & Menu Navigation Dock (Right) */}
+      {/* Bottom HUD: MiniMap + In-Car Radio (Left) & Menu Navigation Dock (Right) */}
       <div className="flex flex-col sm:flex-row items-end sm:items-end justify-between gap-3 pointer-events-none w-full">
-        {/* Left Side: In-Car Radio Component */}
-        <InCarRadio />
+        {/* Left Side: MiniMap above the In-Car Radio */}
+        <div className="flex flex-col gap-2 items-start">
+          <MiniMap
+            worldRef={worldRef}
+            locations={GUJARAT_LOCATIONS}
+            visitedLocations={visitedLocations}
+            currentLocationId={currentLocation.id}
+            navTargetId={navTargetId}
+            activeMission={activeMission ?? null}
+          />
+          <InCarRadio />
+        </div>
 
         {/* Right Side: Bottom Menu Navigation Dock */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-950/85 backdrop-blur-md p-2 rounded-2xl border border-amber-600/60 shadow-2xl pointer-events-auto">
@@ -673,8 +711,3 @@ export const HUD: React.FC<HUDProps> = ({
     </div>
   );
 };
-
-
-function distCapActive(loc: LocationData) {
-  return loc.id === 'gir';
-}

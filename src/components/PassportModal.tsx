@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { X, Award, MapPin, Check, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
-import { LocationData } from '../types';
+import { X, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
+import { PassportStampRecord } from '../types';
 import { GUJARAT_LOCATIONS, ACHIEVEMENTS } from '../data/locations';
+import { passportProgress, regionTally } from '../state/exploration';
 
 interface PassportModalProps {
   isOpen: boolean;
@@ -9,7 +10,20 @@ interface PassportModalProps {
   visitedLocations: string[];
   unlockedAchievements: string[];
   totalDistanceKm: number;
+  stampMeta: Record<string, PassportStampRecord>;
   onResetProgress: () => void;
+}
+
+const GU_DIGITS = ['૦', '૧', '૨', '૩', '૪', '૫', '૬', '૭', '૮', '૯'];
+const toGu = (n: number): string => String(n).replace(/\d/g, (d) => GU_DIGITS[+d]);
+
+function shortStampDate(iso: string | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${String(d.getFullYear()).slice(2)}`;
 }
 
 export const PassportModal: React.FC<PassportModalProps> = ({
@@ -18,6 +32,7 @@ export const PassportModal: React.FC<PassportModalProps> = ({
   visitedLocations = [],
   unlockedAchievements = [],
   totalDistanceKm = 0,
+  stampMeta = {},
   onResetProgress,
 }) => {
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -33,9 +48,8 @@ export const PassportModal: React.FC<PassportModalProps> = ({
   const safeUnlocked = Array.isArray(unlockedAchievements) ? unlockedAchievements : [];
   const allLocations = Array.isArray(GUJARAT_LOCATIONS) ? GUJARAT_LOCATIONS : [];
   const allAchievements = Array.isArray(ACHIEVEMENTS) ? ACHIEVEMENTS : [];
-  const completionPct = allLocations.length > 0
-    ? Math.round((safeVisited.length / allLocations.length) * 100)
-    : 0;
+  const progress = passportProgress(allLocations, safeVisited);
+  const regions = regionTally(allLocations, safeVisited);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in font-sans select-none">
@@ -62,25 +76,41 @@ export const PassportModal: React.FC<PassportModalProps> = ({
           </button>
         </div>
 
-        {/* Progress & Stats Bar */}
-        <div className="p-4 bg-slate-950/80 border-b border-slate-800 grid grid-cols-3 gap-3 text-center">
-          <div className="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-800">
-            <div className="text-xs text-slate-400">સ્થળોની મુલાકાત</div>
-            <div className="text-lg font-black text-amber-400 font-mono">
-              {visitedLocations.length} / {GUJARAT_LOCATIONS.length}
+        {/* Progress header: a filled bar + per-region tallies + the live odometer */}
+        <div className="p-4 bg-slate-950/80 border-b border-slate-800 space-y-3">
+          <div>
+            <div className="flex items-baseline justify-between mb-1.5">
+              <span className="text-xs font-bold text-amber-300">
+                ગુજરાત ભ્રમણ: {toGu(progress.visited)} / {toGu(progress.total)} · {toGu(progress.pct)}%
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                કુલ સફર {totalDistanceKm.toFixed(1)} km
+              </span>
+            </div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 transition-all"
+                style={{ width: `${progress.pct}%` }}
+              />
             </div>
           </div>
 
-          <div className="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-800">
-            <div className="text-xs text-slate-400">કુલ સફર (KM)</div>
-            <div className="text-lg font-black text-amber-400 font-mono">
-              {totalDistanceKm.toFixed(1)} km
-            </div>
-          </div>
-
-          <div className="bg-slate-900/80 p-2.5 rounded-2xl border border-slate-800">
-            <div className="text-xs text-slate-400">ગુજરાત એક્સપ્લોરેશન</div>
-            <div className="text-lg font-black text-emerald-400 font-mono">{completionPct}%</div>
+          <div className="flex flex-wrap gap-1.5">
+            {regions.map((r) => {
+              const done = r.visited === r.total;
+              return (
+                <span
+                  key={r.region}
+                  className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
+                    done
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-slate-900 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {r.regionNameGujarati} {toGu(r.visited)}/{toGu(r.total)}
+                </span>
+              );
+            })}
           </div>
         </div>
 
@@ -95,17 +125,18 @@ export const PassportModal: React.FC<PassportModalProps> = ({
               </h3>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {allLocations.map((loc) => {
                 const isVisited = safeVisited.includes(loc.id);
+                const stamp = stampMeta[loc.id];
 
                 return (
                   <div
                     key={loc.id}
-                    className={`relative p-3 rounded-2xl border-2 flex flex-col items-center justify-center text-center transition-all ${
+                    className={`relative p-3 rounded-2xl border-2 flex flex-col items-center text-center transition-all ${
                       isVisited
                         ? 'bg-amber-950/30 border-amber-500/80 text-amber-100 shadow-lg'
-                        : 'bg-slate-900/40 border-dashed border-slate-800 text-slate-500 opacity-60'
+                        : 'bg-slate-900/40 border-dashed border-slate-800 text-slate-600 opacity-70'
                     }`}
                   >
                     {isVisited && (
@@ -113,20 +144,35 @@ export const PassportModal: React.FC<PassportModalProps> = ({
                         ✓
                       </div>
                     )}
-                    <div className="text-3xl mb-1">{loc.icon}</div>
-                    <div className="font-bold text-xs text-amber-300 truncate w-full">
-                      {loc.nameGujarati}
+                    <div
+                      className={`text-3xl mb-1 ${
+                        isVisited ? '' : 'grayscale opacity-30'
+                      }`}
+                    >
+                      {isVisited ? loc.icon : '❓'}
                     </div>
-                    <div className="text-[10px] text-slate-400 truncate w-full">
-                      {loc.regionNameGujarati}
+                    <div
+                      className={`font-bold text-xs truncate w-full ${
+                        isVisited ? 'text-amber-300' : 'text-slate-500'
+                      }`}
+                    >
+                      {isVisited ? loc.nameGujarati : '???'}
                     </div>
 
                     {isVisited ? (
-                      <span className="mt-2 text-[9px] uppercase tracking-wider font-extrabold text-amber-400 border border-amber-500/50 px-2 py-0.5 rounded-full">
-                        વિઝા સ્વીકૃત
-                      </span>
+                      <>
+                        <div className="mt-1.5 text-[9px] text-amber-400/90 font-mono flex items-center gap-2">
+                          {stamp && <span>📅 {shortStampDate(stamp.visitedAt)}</span>}
+                          {stamp && <span>{stamp.kilometersDriven.toFixed(0)} km</span>}
+                        </div>
+                        {loc.passportStory && (
+                          <p className="mt-1 text-[10px] text-slate-300 leading-snug line-clamp-2">
+                            {loc.passportStory}
+                          </p>
+                        )}
+                      </>
                     ) : (
-                      <span className="mt-2 text-[9px] text-slate-500">બાકી</span>
+                      <span className="mt-2 text-[9px] text-slate-600">પહેલા જાતે પહોંચો</span>
                     )}
                   </div>
                 );

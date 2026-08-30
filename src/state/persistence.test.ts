@@ -33,6 +33,23 @@ describe('persistence', () => {
     expect(p.customization.bodyColor).toBe(123);
   });
 
+  it('round-trips stampMeta', () => {
+    const p = {
+      ...DEFAULT_PROGRESS,
+      visitedLocations: ['rajkot', 'dwarka'],
+      stampMeta: {
+        dwarka: { visitedAt: '2026-08-30T10:00:00.000Z', kilometersDriven: 42.5 },
+      },
+    };
+    saveProgress(p);
+    flushProgress();
+    expect(loadProgress()).toEqual(p);
+  });
+
+  it('defaults stampMeta to an empty object', () => {
+    expect(loadProgress().stampMeta).toEqual({});
+  });
+
   it('resets to defaults on schema version mismatch', () => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SCHEMA_VERSION + 1, progress: { coins: 5 } }));
     expect(loadProgress()).toEqual(DEFAULT_PROGRESS);

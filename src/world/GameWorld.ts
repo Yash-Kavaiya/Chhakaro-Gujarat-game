@@ -72,6 +72,7 @@ export class GameWorld {
   public onLandmarkApproach?: (location: LocationData) => void;
   public onLocationChange?: (location: LocationData) => void;
   public onSpeedUpdate?: (speed: number, rpm: number) => void;
+  public onVehicleMove?: (x: number, z: number, headingRad: number) => void;
   public onTimeOfDayUpdate?: (timeState: TimeOfDayState) => void;
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
@@ -489,6 +490,8 @@ export class GameWorld {
       const rpm = Math.floor(800 + (Math.abs(this.speed) / 70) * 2400);
       this.onSpeedUpdate(Math.round(this.speed), rpm);
     }
+
+    this.onVehicleMove?.(this.vehiclePos.x, this.vehiclePos.z, this.vehicleRotation);
 
     if (this.onHealthUpdate) {
       this.onHealthUpdate({ ...this.healthState });

@@ -31,11 +31,16 @@ export interface LocationData {
   tagline: string;
   description: string;
   history: string;
+  /** One reliable "why this place matters" sentence — shown on the passport stamp and in the History Card once visited. */
+  passportStory?: string;
   famousFood: string;
   foodDescription: string;
   culturalHighlights: string[];
   landmarks: string[];
   worldPosition: { x: number; z: number };
+  /** Optional hand-placed 2D coordinate (same units as worldPosition) for any zone whose 3D
+   *  projection lands cramped on the flat map. MiniMap / GujaratMapModal fall back to worldPosition. */
+  mapPosition?: { x: number; z: number };
   zoneRadius: number;
   environmentTheme:
     | 'village'
@@ -72,6 +77,12 @@ export interface ChhakaroCustomization {
   seatCoverPattern?: 'bandhani' | 'kathiyawadi_patch' | 'classic_brown';
 }
 
+/** What M1 actually stores per visited location — leaner than the unused PassportStamp. */
+export interface PassportStampRecord {
+  visitedAt: string;        // ISO date-time
+  kilometersDriven: number; // odometer reading at first visit
+}
+
 export interface GameProgress {
   coins: number;
   reputationStars: number;
@@ -84,6 +95,7 @@ export interface GameProgress {
   customization: ChhakaroCustomization;
   totalKm: number;
   lastLocationId: string;
+  stampMeta: Record<string, PassportStampRecord>;
 }
 
 export interface PassportStamp {
@@ -92,6 +104,11 @@ export interface PassportStamp {
   visitedAt: string;
   kilometersDriven: number;
   unlockedStory: string;
+}
+
+/** A set destination for the turn-by-turn arrow. The route is derived each frame, not stored. */
+export interface NavTarget {
+  locationId: string;
 }
 
 export interface FoodItem {
