@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { GameWorld } from '../world/GameWorld';
 import { LocationData, MissionData } from '../types';
+import { projectPoints } from './mapProjection';
 
 interface MiniMapProps {
   worldRef: React.RefObject<GameWorld | null>;
@@ -12,33 +13,9 @@ interface MiniMapProps {
 }
 
 const SIZE = 180;
-const PAD = 16;
 
 // Facilities: GameWorld.checkFacilityProximity keeps its 6 coordinates private, so the
 // minimap deliberately omits facility markers — the in-world HUD prompt already covers them.
-
-/** Project world {x,z} into the SVG box from the bounding box of all points, once. */
-function useProjection(locations: LocationData[]) {
-  return useMemo(() => {
-    const pts = locations.map((l) => l.mapPosition ?? l.worldPosition);
-    const xs = pts.map((p) => p.x);
-    const zs = pts.map((p) => p.z);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minZ = Math.min(...zs);
-    const maxZ = Math.max(...zs);
-    const span = Math.max(maxX - minX, maxZ - minZ) || 1;
-    const scale = (SIZE - PAD * 2) / span;
-    // Centre the (possibly non-square) content inside the square box.
-    const offX = PAD + ((SIZE - PAD * 2) - (maxX - minX) * scale) / 2;
-    const offZ = PAD + ((SIZE - PAD * 2) - (maxZ - minZ) * scale) / 2;
-    const project = (p: { x: number; z: number }): [number, number] => [
-      offX + (p.x - minX) * scale,
-      offZ + (p.z - minZ) * scale,
-    ];
-    return { project, scale };
-  }, [locations]);
-}
 
 export const MiniMap: React.FC<MiniMapProps> = ({
   worldRef,
@@ -48,7 +25,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
   navTargetId,
   activeMission,
 }) => {
-  const { project } = useProjection(locations);
+  const { project } = useMemo(() => projectPoints(locations, SIZE), [locations]);
   const playerRef = useRef<SVGGElement>(null);
 
   // Drive the player marker straight from the world each frame — off React's render path.

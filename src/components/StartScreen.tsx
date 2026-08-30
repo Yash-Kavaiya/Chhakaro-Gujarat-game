@@ -1,13 +1,21 @@
 import React, { useState } from 'react';
-import { Play, Compass, Key, Sparkles, Navigation } from 'lucide-react';
+import { Play, Compass, Key } from 'lucide-react';
 import { LocationData } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 
 interface StartScreenProps {
   onStartGame: (startLoc: LocationData) => void;
+  hasSave: boolean;
+  lastLocationName: string | null;
+  onResume: () => void;
 }
 
-export const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
+export const StartScreen: React.FC<StartScreenProps> = ({
+  onStartGame,
+  hasSave,
+  lastLocationName,
+  onResume,
+}) => {
   const [selectedStart, setSelectedStart] = useState<LocationData>(GUJARAT_LOCATIONS[0]);
 
   const quickStarts = GUJARAT_LOCATIONS.slice(0, 5);
@@ -33,11 +41,29 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
           </p>
         </div>
 
+        {/* Resume path — only when a save exists */}
+        {hasSave && (
+          <div className="w-full">
+            <button
+              id="resume-trip-btn"
+              onClick={onResume}
+              className="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 py-4 rounded-2xl font-black text-base shadow-2xl flex items-center justify-center gap-3 transition-transform active:scale-98"
+            >
+              <Play className="w-5 h-5" />
+              <span>▶ સફર ચાલુ રાખો</span>
+              {lastLocationName && (
+                <span className="text-xs font-bold opacity-80">({lastLocationName})</span>
+              )}
+            </button>
+            <div className="text-[11px] text-slate-400 mt-2 text-center">— અથવા નવેસરથી શરૂ કરો —</div>
+          </div>
+        )}
+
         {/* Start Point Selection */}
         <div className="w-full text-left">
           <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2.5">
             <Compass className="w-4 h-4" />
-            <span>યાત્રા ક્યાંથી શરૂ કરવી છે? (Starting Point)</span>
+            <span>{hasSave ? 'નવી સફર ક્યાંથી? (New Trip Start)' : 'યાત્રા ક્યાંથી શરૂ કરવી છે? (Starting Point)'}</span>
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {quickStarts.map((loc) => {
@@ -91,10 +117,16 @@ export const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
         <button
           id="start-engine-btn"
           onClick={() => onStartGame(selectedStart)}
-          className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-4 rounded-2xl font-black text-base shadow-2xl flex items-center justify-center gap-3 transition-transform active:scale-98 animate-pulse"
+          className={`w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-4 rounded-2xl font-black text-base shadow-2xl flex items-center justify-center gap-3 transition-transform active:scale-98 ${
+            hasSave ? '' : 'animate-pulse'
+          }`}
         >
           <Key className="w-5 h-5" />
-          <span>🔑 છકડો ચાલુ કરો અને નીકળો સફરે! (Start Engine)</span>
+          <span>
+            {hasSave
+              ? '✦ નવી સફર શરૂ કરો (New Trip)'
+              : '🔑 છકડો ચાલુ કરો અને નીકળો સફરે! (Start Engine)'}
+          </span>
         </button>
       </div>
     </div>

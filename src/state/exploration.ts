@@ -1,4 +1,5 @@
 import { LocationData } from '../types';
+import { distanceMeters } from './navigation';
 
 export interface RegionTally {
   region: string;
@@ -23,6 +24,26 @@ export function regionTally(locations: LocationData[], visitedIds: string[]): Re
     if (seen.has(loc.id)) tally.visited += 1;
   }
   return order.map((r) => byRegion.get(r)!);
+}
+
+/** The unvisited location closest to `from` by planar distance, or null if all visited. Pure. */
+export function nearestUnvisited(
+  locations: LocationData[],
+  visitedIds: string[],
+  from: { x: number; z: number },
+): LocationData | null {
+  const seen = new Set(visitedIds);
+  let best: LocationData | null = null;
+  let bestD = Infinity;
+  for (const loc of locations) {
+    if (seen.has(loc.id)) continue;
+    const d = distanceMeters(from, loc.worldPosition);
+    if (d < bestD) {
+      bestD = d;
+      best = loc;
+    }
+  }
+  return best;
 }
 
 /** { visited, total, pct } for the whole map. Pure. */
