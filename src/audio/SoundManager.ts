@@ -296,6 +296,57 @@ class SoundManager {
   }
 
   /**
+   * Short rising two-note ping for confirmations (stamp earned, item bought, correct answer).
+   */
+  public playChime() {
+    this.initContext();
+    if (!this.ctx || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const notes = [659.25, 987.77]; // E5, B5
+    notes.forEach((freq, i) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, now + i * 0.09);
+      gain.gain.setValueAtTime(0.22, now + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.09 + 0.25);
+      osc.connect(gain);
+      gain.connect(this.ctx!.destination);
+      osc.start(now + i * 0.09);
+      osc.stop(now + i * 0.09 + 0.3);
+    });
+  }
+
+  /**
+   * One or more short horn toots (used for wrong quiz answer, mission accept cue).
+   */
+  public playHorn(count: number = 1) {
+    this.initContext();
+    if (!this.ctx || this.isMuted) return;
+    const toots = Math.max(1, Math.min(3, Math.floor(count)));
+    const now = this.ctx.currentTime;
+    for (let t = 0; t < toots; t++) {
+      const start = now + t * 0.22;
+      const osc1 = this.ctx.createOscillator();
+      const osc2 = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc2.type = 'square';
+      osc1.frequency.setValueAtTime(340, start);
+      osc2.frequency.setValueAtTime(425, start);
+      gain.gain.setValueAtTime(0.28, start);
+      gain.gain.setTargetAtTime(0, start + 0.14, 0.03);
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc1.start(start);
+      osc2.start(start);
+      osc1.stop(start + 0.2);
+      osc2.stop(start + 0.2);
+    }
+  }
+
+  /**
    * Play base64 audio from Gemini TTS
    */
   public async playBase64Audio(base64Data: string) {
