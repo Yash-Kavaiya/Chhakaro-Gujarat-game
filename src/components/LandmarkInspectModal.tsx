@@ -1,16 +1,30 @@
 import React from 'react';
-import { X, Volume2, Camera, Compass, Award, Sparkles, CheckCircle } from 'lucide-react';
-import confetti from 'canvas-confetti';
-import { LocationData } from '../types';
+import { X, Volume2, CheckCircle } from 'lucide-react';
+import { LocationData, PassportStampRecord } from '../types';
 import { soundManager } from '../audio/SoundManager';
 
+/**
+ * The History Card. Contract: App owns state; this is presentational — it gets the location,
+ * whether it's visited, and (once visited) the stamp record, and calls back to log the visit
+ * or open Kaka. The first-visit reward (coins + chime + notify) is App's `recordVisit`, not
+ * this component's job. The one deliberate local side effect is the audio-guide button.
+ */
 interface LandmarkInspectModalProps {
   isOpen: boolean;
   onClose: () => void;
   location: LocationData;
   isVisited: boolean;
+  stampRecord?: PassportStampRecord;
   onMarkVisited: (locId: string) => void;
   onOpenKaka: () => void;
+}
+
+function formatStampDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
 export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
@@ -18,27 +32,15 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
   onClose,
   location,
   isVisited,
+  stampRecord,
   onMarkVisited,
   onOpenKaka,
 }) => {
   if (!isOpen) return null;
 
-  const handleCapturePostcard = () => {
-    onMarkVisited(location.id);
-    soundManager.playAchievementSound();
-    soundManager.speakGujaratiTextFallback(`અભિનંદન! ${location.nameGujarati} ની યાદગાર તસવીર લેવાઈ ગઈ!`);
-
-    confetti({
-      particleCount: 80,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ['#f59e0b', '#dc2626', '#16a34a', '#2563eb'],
-    });
-  };
-
   const handlePlayVoiceGuide = () => {
     soundManager.speakGujaratiTextFallback(
-      `સ્વાગત છે ${location.nameGujarati} માં! ${location.history} અહીં આવ્યા પછી ${location.famousFood} ખાવાનું ભૂલતા નહીં!`
+      `સ્વાગત છે ${location.nameGujarati} માં! ${location.history} અહીં આવ્યા પછી ${location.famousFood} ખાવાનું ભૂલતા નહીં!`,
     );
   };
 
@@ -82,15 +84,13 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
           </div>
 
           <div className="p-4 rounded-2xl bg-amber-950/20 border border-amber-500/30">
-            <p className="text-sm italic font-serif text-amber-200">
-              "{location.tagline}"
-            </p>
+            <p className="text-sm italic font-serif text-amber-200">"{location.tagline}"</p>
           </div>
 
           {/* History */}
           <div>
             <h4 className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-1.5">
-              સ્થળનો પરિચય & ઐતિહાસિક મહત્વ:
+              ઇતિહાસ & મહત્વ:
             </h4>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800">
               {location.history}
@@ -120,6 +120,25 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
               <span className="font-bold">🍲 અહીંની સ્પેશિયલ વાનગી:</span> {location.famousFood}
             </div>
           </div>
+
+          {/* Your stamp — only once the zone is logged */}
+          {isVisited && (
+            <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-1.5">
+              <h4 className="text-xs font-black text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5" />
+                <span>તમારો સ્ટેમ્પ</span>
+              </h4>
+              {stampRecord && (
+                <div className="text-[11px] text-emerald-200/90 font-medium flex flex-wrap gap-x-4 gap-y-0.5">
+                  <span>📅 {formatStampDate(stampRecord.visitedAt)}</span>
+                  <span>🛣️ {stampRecord.kilometersDriven.toFixed(1)} km</span>
+                </div>
+              )}
+              {location.passportStory && (
+                <p className="text-xs text-slate-300 leading-relaxed pt-1">{location.passportStory}</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -134,13 +153,32 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
           </button>
 
           <button
-            id="postcard-photo-btn"
-            onClick={handleCapturePostcard}
-            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-3 rounded-2xl font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-98"
+            id="ask-kaka-btn"
+            onClick={onOpenKaka}
+            className="bg-slate-800 hover:bg-slate-700 text-amber-200 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
           >
-            <Camera className="w-4 h-4" />
-            <span>પોસ્ટકાર્ડ ફોટો લો & પાસપોર્ટ સ્ટેમ્પ કરો!</span>
+            <span className="text-base">👳🏽‍♂️</span>
+            <span>કાનજી કાકાને પૂછો</span>
           </button>
+
+          {isVisited ? (
+            <div className="sm:col-span-2 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2">
+              <CheckCircle className="w-4 h-4" />
+              <span>✓ પાસપોર્ટમાં નોંધાયેલ</span>
+            </div>
+          ) : (
+            <button
+              id="mark-visited-btn"
+              onClick={() => {
+                onMarkVisited(location.id);
+                onClose();
+              }}
+              className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-3 rounded-2xl font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-98"
+            >
+              <CheckCircle className="w-4 h-4" />
+              <span>✓ મુલાકાત નોંધો</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

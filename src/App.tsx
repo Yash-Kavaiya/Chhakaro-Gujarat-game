@@ -728,6 +728,7 @@ export default function App() {
           onClose={() => setInspectingLandmark(null)}
           location={inspectingLandmark}
           isVisited={visitedLocations.includes(inspectingLandmark.id)}
+          stampRecord={stampMeta[inspectingLandmark.id]}
           onMarkVisited={(locId) => recordVisit(locId)}
           onOpenKaka={() => {
             setInspectingLandmark(null);

@@ -31,6 +31,8 @@ export interface LocationData {
   tagline: string;
   description: string;
   history: string;
+  /** One reliable "why this place matters" sentence — shown on the passport stamp and in the History Card once visited. */
+  passportStory?: string;
   famousFood: string;
   foodDescription: string;
   culturalHighlights: string[];
