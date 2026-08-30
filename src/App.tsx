@@ -42,6 +42,7 @@ import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 import { navState, NavState } from './state/navigation';
+import { nearestUnvisited } from './state/exploration';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -311,6 +312,40 @@ export default function App() {
       canvasRef.current = null;
     };
   }, [isGameStarted]);
+
+  // Idle nudge: parked (~8 s) inside a visited zone → one Kaka suggestion toward the nearest
+  // unvisited place, at most once per zone per session. speed is rounded, so a genuine stop
+  // holds this effect stable and lets the timer complete; any movement re-runs it and the
+  // `speed < 1` gate cancels the pending nudge.
+  const nudgedZonesRef = useRef<Set<string>>(new Set());
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (!isGameStarted || speed >= 1) return;
+    if (!visitedLocations.includes(currentLocation.id)) return;
+    if (nudgedZonesRef.current.has(currentLocation.id)) return;
+
+    idleTimerRef.current = setTimeout(() => {
+      const from = worldRef.current?.vehiclePos ?? currentLocation.worldPosition;
+      const next = nearestUnvisited(GUJARAT_LOCATIONS, visitedLocationsRef.current, {
+        x: from.x,
+        z: from.z,
+      });
+      if (!next) return;
+      nudgedZonesRef.current.add(currentLocation.id);
+      notify({ text: `અહીંથી ${next.nameGujarati} નજીક છે — ત્યાં ફરવા જઈએ?`, tone: 'info' });
+    }, 8000);
+
+    return () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+    };
+  }, [isGameStarted, speed, currentLocation, visitedLocations]);
 
   // Unlock achievements in reaction to committed progress. Side effects (sound + banner)
   // are deliberately kept out of every setState updater so React 19 StrictMode's dev

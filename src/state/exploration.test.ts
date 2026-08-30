@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { regionTally, passportProgress } from './exploration';
+import { regionTally, passportProgress, nearestUnvisited } from './exploration';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 
 describe('passportProgress', () => {
@@ -21,5 +21,20 @@ describe('regionTally', () => {
     expect(t.reduce((n, r) => n + r.total, 0)).toBe(GUJARAT_LOCATIONS.length);
     const saur = t.find((r) => r.region === 'saurashtra');
     expect(saur?.visited).toBe(1);
+  });
+});
+
+describe('nearestUnvisited', () => {
+  it('returns the closest not-yet-visited location', () => {
+    const from = GUJARAT_LOCATIONS[0].worldPosition;
+    const visited = [GUJARAT_LOCATIONS[0].id];
+    const n = nearestUnvisited(GUJARAT_LOCATIONS, visited, from);
+    expect(n).not.toBeNull();
+    expect(visited).not.toContain(n!.id);
+  });
+  it('is null when everything is visited', () => {
+    expect(
+      nearestUnvisited(GUJARAT_LOCATIONS, GUJARAT_LOCATIONS.map((l) => l.id), { x: 0, z: 0 }),
+    ).toBeNull();
   });
 });
