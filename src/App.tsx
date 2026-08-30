@@ -185,36 +185,28 @@ export default function App() {
     };
   }, [isGameStarted]);
 
-  // Handle location visit updates & achievement checks
+  // Unlock achievements in reaction to committed progress. Side effects (sound + banner)
+  // are deliberately kept out of every setState updater so React 19 StrictMode's dev
+  // double-invoke of updaters can't fire the achievement sound or banner twice.
+  useEffect(() => {
+    const earned = evaluateAchievements({ visitedLocations, discoveredFoods, totalKm });
+    const added = earned.filter((id) => !unlockedAchievements.includes(id));
+    if (added.length === 0) return;
+    soundManager.playAchievementSound();
+    setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);
+    setUnlockedAchievements(earned);
+  }, [visitedLocations, discoveredFoods, totalKm, unlockedAchievements]);
+
+  // Handle location visit updates. These stay pure prev -> next reducers (safe against
+  // stale closures in the once-registered world callbacks). Achievement unlocking is a
+  // reaction to the committed progress — see the effect above — never a side effect
+  // inside a setState updater (React 19 StrictMode double-invokes updaters in dev).
   const markLocationVisited = (locId: string) => {
-    setVisitedLocations((prev) => {
-      if (prev.includes(locId)) return prev;
-      const next = [...prev, locId];
-      applyAchievements(next, discoveredFoods, totalKm);
-      return next;
-    });
+    setVisitedLocations((prev) => (prev.includes(locId) ? prev : [...prev, locId]));
   };
 
   const handleDiscoverFood = (foodId: string) => {
-    setDiscoveredFoods((prev) => {
-      if (prev.includes(foodId)) return prev;
-      const next = [...prev, foodId];
-      applyAchievements(visitedLocations, next, totalKm);
-      return next;
-    });
-  };
-
-  const applyAchievements = (visited: string[], foods: string[], km: number) => {
-    const earned = evaluateAchievements({ visitedLocations: visited, discoveredFoods: foods, totalKm: km });
-    setUnlockedAchievements((prev) => {
-      const added = earned.filter((id) => !prev.includes(id));
-      if (added.length > 0) {
-        soundManager.playAchievementSound();
-        const names = added.length;
-        setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${names})`);
-      }
-      return earned.length === prev.length && added.length === 0 ? prev : earned;
-    });
+    setDiscoveredFoods((prev) => (prev.includes(foodId) ? prev : [...prev, foodId]));
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
