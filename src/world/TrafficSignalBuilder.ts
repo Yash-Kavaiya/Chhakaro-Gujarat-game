@@ -143,7 +143,7 @@ export class TrafficSignalBuilder {
   ): TrafficSignalInstance {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
-    group.rotation.y = -roadAngle;
+    group.rotation.y = roadAngle;
 
     const spanWidth = Math.max(16.0, roadWidth + 3.6);
     const gantryHeight = 7.2;
@@ -400,7 +400,7 @@ export class TrafficSignalBuilder {
       zebraMat
     );
     stopLine.rotation.x = -Math.PI / 2;
-    stopLine.position.set(0, 0.025, 8.0);
+    stopLine.position.set(0, 0.052, 8.0);
     zebraGroup.add(stopLine);
 
     // Zebra stripes
@@ -412,7 +412,7 @@ export class TrafficSignalBuilder {
         zebraMat
       );
       stripe.rotation.x = -Math.PI / 2;
-      stripe.position.set(zx, 0.025, 2.5);
+      stripe.position.set(zx, 0.052, 2.5);
       zebraGroup.add(stripe);
     }
     group.add(zebraGroup);

@@ -4,6 +4,7 @@ export type RegionType = GujaratRegion;
 export type WeatherType = 'sunny' | 'sunset' | 'night' | 'rain' | 'fog';
 
 export type TimeOfDayPhase = 'sunrise' | 'day' | 'sunset' | 'dusk' | 'night' | 'dawn';
+export type TimeFreezeMode = 'dynamic' | 'day' | 'sunrise' | 'sunset' | 'night';
 
 export interface TimeOfDayState {
   hour: number; // 0 - 23
@@ -17,6 +18,8 @@ export interface TimeOfDayState {
   sunElevation: number; // -1 to 1
   isNight: boolean;
   sunAngle: number;
+  isFrozen: boolean;
+  freezeMode: TimeFreezeMode;
 }
 
 export interface LocationData {
@@ -105,6 +108,25 @@ export interface FoodItem {
 }
 
 export type FoodDiscovery = FoodItem;
+
+export type EncounterType = 'gathiya_stall' | 'tea_stall' | 'dhaba' | 'farm_stand' | 'handicraft_shop';
+
+export interface RoadsideEncounter {
+  id: string;
+  type: EncounterType;
+  nameGujarati: string;
+  nameEnglish: string;
+  taglineGujarati: string;
+  foodId?: string;
+  foodNameGujarati?: string;
+  foodNameEnglish?: string;
+  emoji: string;
+  kakaDialogue: string;
+  worldPosition: { x: number; z: number };
+  distance?: number;
+  visited?: boolean;
+  rewardCoins?: number;
+}
 
 export interface GameAchievement {
   id: string;

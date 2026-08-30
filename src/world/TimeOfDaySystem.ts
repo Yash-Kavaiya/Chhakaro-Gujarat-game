@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TimeOfDayState, TimeOfDayPhase, WeatherType } from '../types';
+import { TimeOfDayState, TimeOfDayPhase, WeatherType, TimeFreezeMode } from '../types';
 
 interface LightingKeyframe {
   progress: number; // 0.0 to 1.0 (0.0 = 06:00 AM Dawn)
@@ -41,6 +41,7 @@ export class TimeOfDaySystem {
   public cycleDistance: number = 1400; // 1400 meters of driving per 24h day-night cycle
   private manualMode: boolean = false;
   private manualProgress: number = 0;
+  private timeFreezeMode: TimeFreezeMode = 'dynamic';
   private currentProgress: number = 0;
   private smoothProgress: number = 0;
 
@@ -558,25 +559,28 @@ export class TimeOfDaySystem {
       sunElevation: currentSunElevation,
       isNight,
       sunAngle,
+      isFrozen: this.manualMode,
+      freezeMode: this.timeFreezeMode,
     };
   }
 
   /**
-   * Set manual time of day preset (e.g. from UI buttons) or restore auto
+   * Set specific time mode (Dynamic 24h cycle, or Freeze Day / Sunrise / Sunset / Night)
    */
-  public setManualPhase(phase: 'auto' | 'sunrise' | 'day' | 'sunset' | 'night') {
-    if (phase === 'auto') {
+  public setFreezeMode(mode: TimeFreezeMode) {
+    this.timeFreezeMode = mode;
+    if (mode === 'dynamic') {
       this.manualMode = false;
       return;
     }
 
     this.manualMode = true;
-    switch (phase) {
+    switch (mode) {
+      case 'day':
+        this.manualProgress = 0.27; // High Noon Sun
+        break;
       case 'sunrise':
         this.manualProgress = 0.0;
-        break;
-      case 'day':
-        this.manualProgress = 0.27;
         break;
       case 'sunset':
         this.manualProgress = 0.56;
@@ -587,7 +591,36 @@ export class TimeOfDaySystem {
     }
   }
 
+  /**
+   * Toggle between Dynamic 24h driving cycle and Frozen Day
+   * Returns true if now frozen to Day, false if dynamic
+   */
+  public toggleDayFreeze(): boolean {
+    if (this.manualMode && this.timeFreezeMode === 'day') {
+      this.setFreezeMode('dynamic');
+      return false;
+    } else {
+      this.setFreezeMode('day');
+      return true;
+    }
+  }
+
+  /**
+   * Set manual time of day preset (e.g. from UI buttons) or restore auto
+   */
+  public setManualPhase(phase: 'auto' | 'sunrise' | 'day' | 'sunset' | 'night') {
+    if (phase === 'auto') {
+      this.setFreezeMode('dynamic');
+      return;
+    }
+    this.setFreezeMode(phase);
+  }
+
   public isAutoMode(): boolean {
     return !this.manualMode;
+  }
+
+  public getFreezeMode(): TimeFreezeMode {
+    return this.timeFreezeMode;
   }
 }

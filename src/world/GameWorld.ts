@@ -4,8 +4,9 @@ import { EnvironmentBuilder } from './EnvironmentBuilder';
 import { TimeOfDaySystem } from './TimeOfDaySystem';
 import { NPCSystem } from './NPCSystem';
 import { TrafficSystem } from './TrafficSystem';
-import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState } from '../types';
+import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
+import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
 import { soundManager } from '../audio/SoundManager';
 
 export class GameWorld {
@@ -64,6 +65,7 @@ export class GameWorld {
   public nearbyLandmark: LocationData | null = null;
   public isNearLandmark: boolean = false;
   public nearbyFacility: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null = null;
+  public nearbyEncounter: RoadsideEncounter | null = null;
   public totalDistanceDriven: number = 0; // in meters
 
   // Handlers / Callbacks
@@ -73,6 +75,7 @@ export class GameWorld {
   public onTimeOfDayUpdate?: (timeState: TimeOfDayState) => void;
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
+  public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
@@ -249,6 +252,16 @@ export class GameWorld {
 
   public setTimeOfDayPhase(phase: 'auto' | 'sunrise' | 'day' | 'sunset' | 'night') {
     this.timeOfDaySystem.setManualPhase(phase);
+  }
+
+  public setTimeFreezeMode(mode: TimeFreezeMode) {
+    this.timeOfDaySystem.setFreezeMode(mode);
+  }
+
+  public toggleFreezeDay(): boolean {
+    const isNowDayFrozen = this.timeOfDaySystem.toggleDayFreeze();
+    soundManager.playClick();
+    return isNowDayFrozen;
   }
 
   public setCameraMode(mode: CameraMode) {
@@ -481,9 +494,30 @@ export class GameWorld {
       this.onHealthUpdate({ ...this.healthState });
     }
 
-    // 6. Check landmark proximity & facilities
+    // 6. Check landmark proximity & facilities & encounters
     this.checkLandmarkProximity();
     this.checkFacilityProximity();
+    this.checkRoadsideEncounters();
+  }
+
+  private checkRoadsideEncounters() {
+    let nearest: RoadsideEncounter | null = null;
+    let minDist = 35; // Interaction radius in meters
+
+    for (const enc of ROADSIDE_ENCOUNTERS) {
+      const d = Math.hypot(this.vehiclePos.x - enc.worldPosition.x, this.vehiclePos.z - enc.worldPosition.z);
+      if (d < minDist) {
+        minDist = d;
+        nearest = enc;
+      }
+    }
+
+    if (nearest !== this.nearbyEncounter) {
+      this.nearbyEncounter = nearest;
+      if (this.onEncounterApproach) {
+        this.onEncounterApproach(nearest);
+      }
+    }
   }
 
   private checkFacilityProximity() {
@@ -651,6 +685,11 @@ export class GameWorld {
     // Update dynamic multi-aspect wide traffic signals & countdown timers
     if (this.environmentBuilder?.trafficSignalBuilder) {
       this.environmentBuilder.trafficSignalBuilder.update(delta);
+    }
+
+    // Update continuous environment animations (windmills, smoke, steam)
+    if (this.environmentBuilder) {
+      this.environmentBuilder.update(delta);
     }
 
     this.renderer.render(this.scene, this.camera);

@@ -13,6 +13,7 @@ import { QuizModal } from './components/QuizModal';
 import { PhotoModeModal } from './components/PhotoModeModal';
 import { MobileControls } from './components/MobileControls';
 import { StartScreen } from './components/StartScreen';
+import { RoadsideEncounterModal } from './components/RoadsideEncounterModal';
 import {
   LocationData,
   CameraMode,
@@ -25,6 +26,8 @@ import {
   MissionData,
   SouvenirItem,
   CulturalQuiz,
+  TimeFreezeMode,
+  RoadsideEncounter,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -52,6 +55,8 @@ export default function App() {
   );
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
+  const [nearbyEncounter, setNearbyEncounter] = useState<RoadsideEncounter | null>(null);
+  const [activeEncounterModal, setActiveEncounterModal] = useState<RoadsideEncounter | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
   const [isHazardOn, setIsHazardOn] = useState(false);
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
@@ -148,6 +153,10 @@ export default function App() {
       setNearbyFacility(facility ? { ...facility, distance: 10 } : null);
     };
 
+    world.onEncounterApproach = (encounter) => {
+      setNearbyEncounter(encounter);
+    };
+
     world.onLandmarkApproach = (loc) => {
       setNearbyLandmark(loc);
       triggerLandmarkWelcome(loc);
@@ -169,8 +178,22 @@ export default function App() {
         setIsMapOpen((prev) => !prev);
       } else if (key === 'p') {
         setIsPassportOpen((prev) => !prev);
-      } else if (key === 'e' && world.nearbyLandmark) {
-        setInspectingLandmark(world.nearbyLandmark);
+      } else if (key === 't') {
+        if (worldRef.current) {
+          const isFrozen = worldRef.current.toggleFreezeDay();
+          if (isFrozen) {
+            setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તડકો લૉક થયો (Day Frozen)');
+          } else {
+            setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક ચક્ર શરૂ થયું (Dynamic Cycle)');
+          }
+          setTimeout(() => setFloatingBanner(null), 3000);
+        }
+      } else if (key === 'e') {
+        if (world.nearbyEncounter) {
+          setActiveEncounterModal(world.nearbyEncounter);
+        } else if (world.nearbyLandmark) {
+          setInspectingLandmark(world.nearbyLandmark);
+        }
       }
     };
 
@@ -244,6 +267,20 @@ export default function App() {
 
   const handleDiscoverFood = (foodId: string) => {
     setDiscoveredFoods((prev) => (prev.includes(foodId) ? prev : [...prev, foodId]));
+  };
+
+  const handleTasteAndCollectFood = (encounter: RoadsideEncounter) => {
+    if (encounter.foodId) {
+      handleDiscoverFood(encounter.foodId);
+    }
+    const coinsReward = encounter.rewardCoins ?? 35;
+    setCoins((prev) => prev + coinsReward);
+    setReputationStars((prev) => Math.min(5, prev + 1));
+    soundManager.playHorn();
+    const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
+    setFloatingBanner(`🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`);
+    setTimeout(() => setFloatingBanner(null), 4500);
+    setActiveEncounterModal(null);
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
@@ -382,6 +419,36 @@ export default function App() {
     }
   };
 
+  const handleToggleFreezeDay = () => {
+    if (worldRef.current) {
+      const isFrozen = worldRef.current.toggleFreezeDay();
+      if (isFrozen) {
+        setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તેજસ્વી તડકો લૉક થયો (Day Frozen)');
+      } else {
+        setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક સૂર્ય ચક્ર શરૂ થયું (Dynamic Cycle)');
+      }
+      setTimeout(() => setFloatingBanner(null), 3000);
+    }
+  };
+
+  const handleSetTimeFreezeMode = (mode: TimeFreezeMode) => {
+    if (worldRef.current) {
+      worldRef.current.setTimeFreezeMode(mode);
+      if (mode === 'day') {
+        setFloatingBanner('☀️ દિવસ ફ્રીઝ: બપોરનો તડકો (Freeze Day - 12:30 PM)');
+      } else if (mode === 'dynamic') {
+        setFloatingBanner('🔄 ગતિશીલ ૨૪-કલાક સમય ચક્ર (Dynamic 24h Driving Cycle)');
+      } else if (mode === 'sunrise') {
+        setFloatingBanner('🌅 સૂર્યોદય ફ્રીઝ: સોનેરી સવાર (Freeze Sunrise - 06:00 AM)');
+      } else if (mode === 'sunset') {
+        setFloatingBanner('🌇 સંધ્યાકાળ ફ્રીઝ: લાલચોળ સાંજ (Freeze Sunset - 07:15 PM)');
+      } else if (mode === 'night') {
+        setFloatingBanner('🌌 ચાંદની રાત ફ્રીઝ: શાંત મધ્યરાત્રિ (Freeze Night - 10:30 PM)');
+      }
+      setTimeout(() => setFloatingBanner(null), 3000);
+    }
+  };
+
   const handleFastTravel = (loc: LocationData) => {
     if (worldRef.current) {
       worldRef.current.teleportToLocation(loc);
@@ -441,6 +508,7 @@ export default function App() {
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
             nearbyFacility={nearbyFacility}
+            nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
             isHeadlightOn={isHeadlightOn}
             isHazardOn={isHazardOn}
@@ -459,6 +527,8 @@ export default function App() {
             onToggleHazard={handleToggleHazard}
             onChangeCamera={handleChangeCamera}
             onChangeWeather={handleChangeWeather}
+            onToggleFreezeDay={handleToggleFreezeDay}
+            onSetTimeFreezeMode={handleSetTimeFreezeMode}
             onOpenMap={() => setIsMapOpen(true)}
             onOpenPassport={() => setIsPassportOpen(true)}
             onOpenFood={() => setIsFoodOpen(true)}
@@ -471,6 +541,7 @@ export default function App() {
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
             onRefuel={handleRefuel}
             onRepair={handleRepair}
+            onInteractEncounter={(enc) => setActiveEncounterModal(enc)}
           />
 
           {/* On-screen Mobile Pedals & Steer Controls */}
@@ -571,6 +642,19 @@ export default function App() {
             setInspectingLandmark(null);
             setIsKakaOpen(true);
           }}
+        />
+      )}
+
+      {activeEncounterModal && (
+        <RoadsideEncounterModal
+          encounter={activeEncounterModal}
+          isFoodAlreadyDiscovered={
+            activeEncounterModal.foodId
+              ? discoveredFoods.includes(activeEncounterModal.foodId)
+              : false
+          }
+          onTasteAndCollect={handleTasteAndCollectFood}
+          onClose={() => setActiveEncounterModal(null)}
         />
       )}
     </div>
