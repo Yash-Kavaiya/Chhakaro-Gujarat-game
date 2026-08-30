@@ -22,18 +22,22 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
   isOpen,
   onClose,
   currentLocation,
-  availableMissions,
+  availableMissions = [],
   activeMission,
   activePassenger,
-  coins,
-  reputationStars,
-  completedMissions,
+  coins = 0,
+  reputationStars = 5,
+  completedMissions = [],
   onAcceptMission,
   onCancelMission,
 }) => {
+  const safeMissions = Array.isArray(availableMissions) ? availableMissions : [];
+  const safeCompleted = Array.isArray(completedMissions) ? completedMissions : [];
+  const allPassengers = Array.isArray(GUJARATI_PASSENGERS) ? GUJARATI_PASSENGERS : [];
+
   const [selectedTab, setSelectedTab] = useState<'missions' | 'passengers'>('missions');
   const [selectedMission, setSelectedMission] = useState<MissionData | null>(
-    activeMission ?? availableMissions[0] ?? null
+    activeMission ?? safeMissions[0] ?? null
   );
 
   if (!isOpen) return null;
@@ -104,7 +108,7 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
             <>
               {/* Mission List (Left Column) */}
               <div className="md:col-span-5 space-y-3 max-h-[58vh] overflow-y-auto pr-2">
-                {availableMissions.map((mission) => {
+                {safeMissions.map((mission) => {
                   const isCurrentActive = activeMission?.id === mission.id;
                   const isSelected = selectedMission?.id === mission.id;
 

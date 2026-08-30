@@ -89,12 +89,12 @@ export default function App() {
 
   // Derived quiz for current location
   const currentQuiz: CulturalQuiz | null =
-    GUJARATI_QUIZZES.find((q) => q.locationId === currentLocation.id) ?? null;
+    (GUJARATI_QUIZZES || []).find((q) => q.locationId === currentLocation?.id) ?? null;
 
   // Derived souvenirs for current location
-  const currentLocationSouvenirs = GUJARATI_SOUVENIRS
-    .filter((s) => s.locationId === currentLocation.id)
-    .map((s) => ({ ...s, acquired: collectedSouvenirs.includes(s.id) }));
+  const currentLocationSouvenirs = (GUJARATI_SOUVENIRS || [])
+    .filter((s) => s.locationId === currentLocation?.id)
+    .map((s) => ({ ...s, acquired: (collectedSouvenirs || []).includes(s.id) }));
 
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
@@ -188,8 +188,8 @@ export default function App() {
   // are deliberately kept out of every setState updater so React 19 StrictMode's dev
   // double-invoke of updaters can't fire the achievement sound or banner twice.
   useEffect(() => {
-    const earned = evaluateAchievements({ visitedLocations, discoveredFoods, totalKm });
-    const added = earned.filter((id) => !unlockedAchievements.includes(id));
+    const earned = evaluateAchievements({ visitedLocations, discoveredFoods, totalKm }) || [];
+    const added = earned.filter((id) => !(unlockedAchievements || []).includes(id));
     if (added.length === 0) return;
     soundManager.playAchievementSound();
     setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);

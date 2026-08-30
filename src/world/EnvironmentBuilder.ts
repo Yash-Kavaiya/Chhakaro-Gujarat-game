@@ -1,14 +1,20 @@
 import * as THREE from 'three';
 import { LocationData } from '../types';
 import { RoadSignBuilder } from './RoadSignBuilder';
+import { TrafficSignalBuilder } from './TrafficSignalBuilder';
+import { RoadGeometryHelper } from './RoadGeometryHelper';
+import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
-  private roadSignBuilder: RoadSignBuilder;
+  public roadSignBuilder: RoadSignBuilder;
+  public trafficSignalBuilder: TrafficSignalBuilder;
 
   // Reusable materials
   private roadMat: THREE.MeshStandardMaterial;
   private roadMarkingMat: THREE.MeshBasicMaterial;
+  private whiteLineMat: THREE.MeshBasicMaterial;
+  private curbMat: THREE.MeshStandardMaterial;
   private sandMat: THREE.MeshStandardMaterial;
   private saltMat: THREE.MeshStandardMaterial;
   private grassMat: THREE.MeshStandardMaterial;
@@ -29,9 +35,12 @@ export class EnvironmentBuilder {
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.roadSignBuilder = new RoadSignBuilder(scene);
+    this.trafficSignalBuilder = new TrafficSignalBuilder(scene);
 
-    this.roadMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.85 });
-    this.roadMarkingMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    this.roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.88 });
+    this.roadMarkingMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+    this.whiteLineMat = new THREE.MeshBasicMaterial({ color: 0xf8fafc });
+    this.curbMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.7 });
     this.sandMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.9 });
     this.saltMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4, metalness: 0.1 });
     this.grassMat = new THREE.MeshStandardMaterial({ color: 0x15803d, roughness: 0.85 });
@@ -62,76 +71,217 @@ export class EnvironmentBuilder {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // 2. Build interconnected highways and roads
-    this.buildRoadNetwork(locations);
+    // 2. Build interconnected wide multi-lane highways
+    const segments = getResolvedHighwaySegments();
+    this.buildRoadNetwork(segments);
 
-    // 3. Build realistic Gujarati road signs and distance milestones
+    // 3. Build grand junction plazas / roundabouts at each city destination
+    this.buildJunctionPlazas(locations);
+
+    // 4. Build wide overhead gantry traffic signals
+    this.trafficSignalBuilder.buildAllSignals(segments, this.scene);
+
+    // 5. Build realistic Gujarati road signs and distance milestones
     this.roadSignBuilder.buildAllRoadSigns(locations, this.scene);
 
-    // 4. Build each unique landmark zone
+    // 6. Build each unique landmark zone
     locations.forEach((loc) => {
       this.buildZoneLandmark(loc);
     });
 
-    // 5. Populate roadside scenery: trees, milestone signboards, dhabas, streetlights
+    // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, streetlights
     this.buildRoadsideScenery(locations);
   }
 
   /**
-   * Create realistic asphalt roads with dashed lane markings connecting destinations
+   * Create realistic wide asphalt roads with lane markings, shoulders, and reflectors
    */
-  private buildRoadNetwork(locations: LocationData[]) {
+  private buildRoadNetwork(segments: ResolvedHighwaySegment[]) {
     const roadGroup = new THREE.Group();
+    const studMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.3, metalness: 0.8 });
 
-    // Main ring highway connecting locations in tour order
-    for (let i = 0; i < locations.length; i++) {
-      const current = locations[i].worldPosition;
-      const next = locations[(i + 1) % locations.length].worldPosition;
+    for (const seg of segments) {
+      const { start, end, angle, distance, width } = seg;
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      const midX = (start.x + end.x) / 2;
+      const midZ = (start.z + end.z) / 2;
 
-      const dx = next.x - current.x;
-      const dz = next.z - current.z;
-      const distance = Math.sqrt(dx * dx + dz * dz);
-      const angle = Math.atan2(dx, dz);
-
-      // Road segment
-      const segmentGeo = new THREE.PlaneGeometry(9.0, distance);
+      // 1. Wide Asphalt Road Surface
+      const segmentGeo = new THREE.PlaneGeometry(width, distance);
       const segment = new THREE.Mesh(segmentGeo, this.roadMat);
       segment.rotation.x = -Math.PI / 2;
       segment.rotation.z = -angle;
-      segment.position.set((current.x + next.x) / 2, 0.01, (current.z + next.z) / 2);
+      segment.position.set(midX, 0.015, midZ);
       segment.receiveShadow = true;
       roadGroup.add(segment);
 
-      // Road edge shoulders (dirt/gravel strips)
-      const shoulderGeo = new THREE.PlaneGeometry(1.5, distance);
+      // 2. Paved Shoulders / Gravel verge
+      const shoulderWidth = 2.2;
+      const shoulderDist = width / 2 + shoulderWidth / 2;
+      const perpX = Math.cos(angle) * shoulderDist;
+      const perpZ = -Math.sin(angle) * shoulderDist;
+
+      const shoulderGeo = new THREE.PlaneGeometry(shoulderWidth, distance);
       const shoulderLeft = new THREE.Mesh(shoulderGeo, this.sandMat);
       shoulderLeft.rotation.x = -Math.PI / 2;
       shoulderLeft.rotation.z = -angle;
-      const perpX = Math.cos(angle) * 5.2;
-      const perpZ = -Math.sin(angle) * 5.2;
-      shoulderLeft.position.set((current.x + next.x) / 2 + perpX, 0.005, (current.z + next.z) / 2 + perpZ);
+      shoulderLeft.position.set(midX + perpX, 0.008, midZ + perpZ);
+      shoulderLeft.receiveShadow = true;
       roadGroup.add(shoulderLeft);
 
       const shoulderRight = new THREE.Mesh(shoulderGeo, this.sandMat);
       shoulderRight.rotation.x = -Math.PI / 2;
       shoulderRight.rotation.z = -angle;
-      shoulderRight.position.set((current.x + next.x) / 2 - perpX, 0.005, (current.z + next.z) / 2 - perpZ);
+      shoulderRight.position.set(midX - perpX, 0.008, midZ - perpZ);
+      shoulderRight.receiveShadow = true;
       roadGroup.add(shoulderRight);
 
-      // Center dashed yellow lane markings
-      const dashCount = Math.floor(distance / 8);
+      // 3. Solid White Edge Lines (Fog Lines)
+      const edgeOffset = width / 2 - 0.45;
+      const edgePerpX = Math.cos(angle) * edgeOffset;
+      const edgePerpZ = -Math.sin(angle) * edgeOffset;
+
+      const edgeLineGeo = new THREE.PlaneGeometry(0.28, distance);
+      const edgeLeft = new THREE.Mesh(edgeLineGeo, this.whiteLineMat);
+      edgeLeft.rotation.x = -Math.PI / 2;
+      edgeLeft.rotation.z = -angle;
+      edgeLeft.position.set(midX + edgePerpX, 0.02, midZ + edgePerpZ);
+      roadGroup.add(edgeLeft);
+
+      const edgeRight = new THREE.Mesh(edgeLineGeo, this.whiteLineMat);
+      edgeRight.rotation.x = -Math.PI / 2;
+      edgeRight.rotation.z = -angle;
+      edgeRight.position.set(midX - edgePerpX, 0.02, midZ - edgePerpZ);
+      roadGroup.add(edgeRight);
+
+      // 4. Center Double-Yellow / Dashed divider stripes
+      const dashStep = 8.0;
+      const dashCount = Math.floor(distance / dashStep);
       for (let d = 0; d < dashCount; d++) {
         const t = (d + 0.5) / dashCount;
-        const markGeo = new THREE.PlaneGeometry(0.3, 3.5);
-        const mark = new THREE.Mesh(markGeo, this.roadMarkingMat);
-        mark.rotation.x = -Math.PI / 2;
-        mark.rotation.z = -angle;
-        mark.position.set(current.x + dx * t, 0.02, current.z + dz * t);
-        roadGroup.add(mark);
+        const cx = start.x + dx * t;
+        const cz = start.z + dz * t;
+
+        // Double yellow line segments
+        [-0.22, 0.22].forEach((stripeOffset) => {
+          const sPerpX = Math.cos(angle) * stripeOffset;
+          const sPerpZ = -Math.sin(angle) * stripeOffset;
+          const mark = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.22, 4.2),
+            this.roadMarkingMat
+          );
+          mark.rotation.x = -Math.PI / 2;
+          mark.rotation.z = -angle;
+          mark.position.set(cx + sPerpX, 0.022, cz + sPerpZ);
+          roadGroup.add(mark);
+        });
+
+        // Retro-reflective road stud (cat's eye)
+        if (d % 2 === 0) {
+          const stud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.16), studMat);
+          stud.position.set(cx, 0.035, cz);
+          roadGroup.add(stud);
+        }
       }
     }
 
     this.scene.add(roadGroup);
+  }
+
+  /**
+   * Build clean, wide junction roundabouts and plazas connecting all highway branches
+   */
+  private buildJunctionPlazas(locations: LocationData[]) {
+    const plazaGroup = new THREE.Group();
+
+    for (const loc of locations) {
+      const { x, z } = loc.worldPosition;
+      const jGroup = new THREE.Group();
+      jGroup.position.set(x, 0, z);
+
+      // 1. Wide circular asphalt roundabout (radius 26m)
+      const asphalt = new THREE.Mesh(
+        new THREE.CircleGeometry(26, 32),
+        this.roadMat
+      );
+      asphalt.rotation.x = -Math.PI / 2;
+      asphalt.position.y = 0.016;
+      asphalt.receiveShadow = true;
+      jGroup.add(asphalt);
+
+      // 2. Outer paved sidewalk ring
+      const sidewalk = new THREE.Mesh(
+        new THREE.RingGeometry(26, 29.5, 32),
+        this.sandstoneMat
+      );
+      sidewalk.rotation.x = -Math.PI / 2;
+      sidewalk.position.y = 0.018;
+      jGroup.add(sidewalk);
+
+      // 3. Outer yellow-black kerb ring
+      const kerb = new THREE.Mesh(
+        new THREE.RingGeometry(25.7, 26.1, 32),
+        this.terracottaMat
+      );
+      kerb.rotation.x = -Math.PI / 2;
+      kerb.position.y = 0.022;
+      jGroup.add(kerb);
+
+      // 4. Central Landscaped Traffic Island
+      const islandKerb = new THREE.Mesh(
+        new THREE.CylinderGeometry(7.5, 7.5, 0.45, 32),
+        this.stoneMat
+      );
+      islandKerb.position.y = 0.225;
+      islandKerb.castShadow = true;
+      jGroup.add(islandKerb);
+
+      const islandLawn = new THREE.Mesh(
+        new THREE.CircleGeometry(7.3, 32),
+        this.grassMat
+      );
+      islandLawn.rotation.x = -Math.PI / 2;
+      islandLawn.position.y = 0.46;
+      jGroup.add(islandLawn);
+
+      // 5. Central Landmark Decorative Pillar
+      const pedestal = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.6, 2.0, 1.2, 16),
+        this.sandstoneMat
+      );
+      pedestal.position.y = 1.05;
+      pedestal.castShadow = true;
+
+      const column = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.7, 0.9, 4.0, 16),
+        this.sandstoneMat
+      );
+      column.position.y = 3.6;
+      column.castShadow = true;
+
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(1.0, 16, 16),
+        this.goldMat
+      );
+      crown.position.y = 6.2;
+      crown.castShadow = true;
+
+      jGroup.add(pedestal, column, crown);
+
+      // 6. Roundabout guidance dashes
+      const innerDashRing = new THREE.Mesh(
+        new THREE.RingGeometry(16.8, 17.2, 32),
+        this.whiteLineMat
+      );
+      innerDashRing.rotation.x = -Math.PI / 2;
+      innerDashRing.position.y = 0.02;
+      jGroup.add(innerDashRing);
+
+      plazaGroup.add(jGroup);
+    }
+
+    this.scene.add(plazaGroup);
   }
 
   /**
@@ -357,13 +507,17 @@ export class EnvironmentBuilder {
    * Zone: Sasan Gir Forest & Wildlife
    */
   private buildGirForestZone(group: THREE.Group) {
-    // Teak & Banyan Dense Forest trees
-    for (let i = 0; i < 48; i++) {
-      const angle = (i / 48) * Math.PI * 2;
-      const radius = 25 + Math.random() * 65;
+    // Teak & Banyan Dense Forest trees (strictly checked for world position road clearance)
+    for (let i = 0; i < 56; i++) {
+      const angle = (i / 56) * Math.PI * 2;
+      const radius = 30 + Math.random() * 75;
       const tx = Math.cos(angle) * radius;
-      const tz = Math.sin(angle) * radius - 15;
-      this.createTree(group, tx, tz, 2.5 + Math.random() * 2.0);
+      const tz = Math.sin(angle) * radius - 20;
+      const worldX = 150 + tx; // Gir position is (150, 550)
+      const worldZ = 550 + tz;
+      if (!RoadGeometryHelper.isInsideRoadOrClearance(worldX, worldZ, 12.0)) {
+        this.createTree(group, tx, tz, 2.2 + Math.random() * 1.8, true);
+      }
     }
 
     // Wooden Safari Watchtower
@@ -669,7 +823,20 @@ export class EnvironmentBuilder {
   }
 
 
-  private createTree(parent: THREE.Group, x: number, z: number, scale: number = 1.0) {
+  private createTree(parent: THREE.Group, x: number, z: number, scale: number = 1.0, bypassSafetyCheck: boolean = false) {
+    // Compute world coordinates
+    let worldX = x;
+    let worldZ = z;
+    if (parent && parent.position) {
+      worldX = parent.position.x + x;
+      worldZ = parent.position.z + z;
+    }
+
+    // Strictly forbid placing tree on road or within safety clearance
+    if (!bypassSafetyCheck && RoadGeometryHelper.isInsideRoadOrClearance(worldX, worldZ, 10.0)) {
+      return;
+    }
+
     const tree = new THREE.Group();
     tree.position.set(x, 0, z);
 
@@ -1262,26 +1429,49 @@ export class EnvironmentBuilder {
 
     // 1. Gujarati Petrol Pumps ("શ્રી ગણેશ પેટ્રોલિયમ")
     this.buildPetrolStation(roadsideGroup, 220, 80, '⛽ શ્રી ગણેશ પેટ્રોલિયમ (HP)');
-    this.buildPetrolStation(roadsideGroup, -120, -160, '⛽ ખોડિયાર પેટ્રોલિયમ (IndianOil)');
-    this.buildPetrolStation(roadsideGroup, 100, 460, '⛽ ગીર હાઇવે પેટ્રોલિયમ');
+    this.buildPetrolStation(roadsideGroup, -120, -180, '⛽ ખોડિયાર પેટ્રોલિયમ (IndianOil)');
+    this.buildPetrolStation(roadsideGroup, 110, 470, '⛽ ગીર હાઇવે પેટ્રોલિયમ');
 
     // 2. Roadside Mechanic & Puncture Garages ("રણછોડ ઓટો ગેરેજ")
-    this.buildAutoGarage(roadsideGroup, 180, 50, '🔧 રણછોડ ઓટો ગેરેજ & પંચર');
-    this.buildAutoGarage(roadsideGroup, -80, 200, '🔧 બાલાજી છકડો સર્વિસ સેન્ટર');
+    this.buildAutoGarage(roadsideGroup, 180, 45, '🔧 રણછોડ ઓટો ગેરેજ & પંચર');
+    this.buildAutoGarage(roadsideGroup, -85, 210, '🔧 બાલાજી છકડો સર્વિસ સેન્ટર');
 
     // 3. Highway FASTag Toll Plaza
     this.buildTollPlaza(roadsideGroup, 300, 100);
 
-    // 4. Milestone Markers and Streetlamps along roadways
-    for (let i = 0; i < locations.length; i++) {
-      const loc = locations[i];
-      const nextLoc = locations[(i + 1) % locations.length];
-      const midX = (loc.worldPosition.x + nextLoc.worldPosition.x) / 2;
-      const midZ = (loc.worldPosition.z + nextLoc.worldPosition.z) / 2;
+    // 4. Milestone Tree Groves along highway verges (outside asphalt + clearance buffer)
+    const segments = RoadGeometryHelper.getSegments();
+    for (const seg of segments) {
+      const { start, end, angle, distance, width } = seg;
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
 
-      // Tree groves
-      for (let t = 0; t < 4; t++) {
-        this.createTree(roadsideGroup, midX + (t % 2 === 0 ? 12 : -12), midZ + (t * 15 - 25), 1.5);
+      // Normal vector perpendicular to road axis
+      const normX = Math.cos(angle);
+      const normZ = -Math.sin(angle);
+
+      // Safe distance beyond road edge: (width/2 + 5.5m)
+      const safeDist = width / 2 + 5.5;
+      const stepCount = Math.floor(distance / 50);
+
+      for (let s = 1; s < stepCount; s++) {
+        const t = s / stepCount;
+        const cx = start.x + dx * t;
+        const cz = start.z + dz * t;
+
+        // Right side roadside tree
+        const rx = cx + normX * (safeDist + (s % 3) * 2.5);
+        const rz = cz + normZ * (safeDist + (s % 3) * 2.5);
+        if (!RoadGeometryHelper.isInsideRoadOrClearance(rx, rz, 8.0)) {
+          this.createTree(roadsideGroup, rx, rz, 1.3 + (s % 2) * 0.4, true);
+        }
+
+        // Left side roadside tree
+        const lx = cx - normX * (safeDist + ((s + 1) % 3) * 2.5);
+        const lz = cz - normZ * (safeDist + ((s + 1) % 3) * 2.5);
+        if (!RoadGeometryHelper.isInsideRoadOrClearance(lx, lz, 8.0)) {
+          this.createTree(roadsideGroup, lx, lz, 1.3 + ((s + 1) % 2) * 0.4, true);
+        }
       }
     }
 

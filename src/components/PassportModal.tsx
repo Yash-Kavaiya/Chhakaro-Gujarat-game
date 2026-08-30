@@ -15,9 +15,9 @@ interface PassportModalProps {
 export const PassportModal: React.FC<PassportModalProps> = ({
   isOpen,
   onClose,
-  visitedLocations,
-  unlockedAchievements,
-  totalDistanceKm,
+  visitedLocations = [],
+  unlockedAchievements = [],
+  totalDistanceKm = 0,
   onResetProgress,
 }) => {
   const [confirmingReset, setConfirmingReset] = useState(false);
@@ -29,7 +29,13 @@ export const PassportModal: React.FC<PassportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const completionPct = Math.round((visitedLocations.length / GUJARAT_LOCATIONS.length) * 100);
+  const safeVisited = Array.isArray(visitedLocations) ? visitedLocations : [];
+  const safeUnlocked = Array.isArray(unlockedAchievements) ? unlockedAchievements : [];
+  const allLocations = Array.isArray(GUJARAT_LOCATIONS) ? GUJARAT_LOCATIONS : [];
+  const allAchievements = Array.isArray(ACHIEVEMENTS) ? ACHIEVEMENTS : [];
+  const completionPct = allLocations.length > 0
+    ? Math.round((safeVisited.length / allLocations.length) * 100)
+    : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-fade-in font-sans select-none">
@@ -90,8 +96,8 @@ export const PassportModal: React.FC<PassportModalProps> = ({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-              {GUJARAT_LOCATIONS.map((loc) => {
-                const isVisited = visitedLocations.includes(loc.id);
+              {allLocations.map((loc) => {
+                const isVisited = safeVisited.includes(loc.id);
 
                 return (
                   <div
@@ -138,8 +144,8 @@ export const PassportModal: React.FC<PassportModalProps> = ({
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {ACHIEVEMENTS.map((ach) => {
-                const isUnlocked = unlockedAchievements.includes(ach.id);
+              {allAchievements.map((ach) => {
+                const isUnlocked = safeUnlocked.includes(ach.id);
 
                 return (
                   <div

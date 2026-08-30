@@ -14,10 +14,13 @@ interface FoodPassportModalProps {
 export const FoodPassportModal: React.FC<FoodPassportModalProps> = ({
   isOpen,
   onClose,
-  discoveredFoods,
+  discoveredFoods = [],
   onDiscoverFood,
 }) => {
   if (!isOpen) return null;
+
+  const safeDiscovered = Array.isArray(discoveredFoods) ? discoveredFoods : [];
+  const allFoods = Array.isArray(GUJARAT_FOODS) ? GUJARAT_FOODS : [];
 
   const handleTasteFood = (food: FoodItem) => {
     onDiscoverFood(food.id);
@@ -50,8 +53,8 @@ export const FoodPassportModal: React.FC<FoodPassportModalProps> = ({
 
         {/* Food Grid */}
         <div className="flex-1 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-          {GUJARAT_FOODS.map((food) => {
-            const isDiscovered = discoveredFoods.includes(food.id);
+          {allFoods.map((food) => {
+            const isDiscovered = safeDiscovered.includes(food.id);
 
             return (
               <div

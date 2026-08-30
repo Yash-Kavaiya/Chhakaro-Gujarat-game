@@ -14,13 +14,14 @@ interface SouvenirShopModalProps {
 export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
   isOpen,
   onClose,
-  souvenirs,
-  coins,
+  souvenirs = [],
+  coins = 0,
   onBuySouvenir,
 }) => {
   if (!isOpen) return null;
 
-  const acquiredCount = souvenirs.filter((s) => s.acquired).length;
+  const safeSouvenirs = Array.isArray(souvenirs) ? souvenirs : [];
+  const acquiredCount = safeSouvenirs.filter((s) => s.acquired).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-fadeIn">
@@ -46,7 +47,7 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
               <span className="text-sm font-bold text-amber-400">🪙 ₹{coins}</span>
               <span className="text-slate-600">|</span>
               <span className="text-xs font-bold text-emerald-300">
-                સંગ્રહ: {acquiredCount} / {souvenirs.length}
+                સંગ્રહ: {acquiredCount} / {safeSouvenirs.length}
               </span>
             </div>
             <button
@@ -60,7 +61,7 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
 
         {/* Souvenir Grid */}
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {souvenirs.map((item) => (
+          {safeSouvenirs.map((item) => (
             <div
               key={item.id}
               className={`p-5 rounded-2xl border flex flex-col justify-between transition-all ${

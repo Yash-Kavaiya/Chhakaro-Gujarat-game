@@ -648,6 +648,11 @@ export class GameWorld {
       this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn);
     }
 
+    // Update dynamic multi-aspect wide traffic signals & countdown timers
+    if (this.environmentBuilder?.trafficSignalBuilder) {
+      this.environmentBuilder.trafficSignalBuilder.update(delta);
+    }
+
     this.renderer.render(this.scene, this.camera);
   };
 
