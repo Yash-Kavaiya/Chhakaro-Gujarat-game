@@ -242,10 +242,17 @@ export interface CulturalQuiz {
   coinReward: number;
 }
 
-export interface PhotoFilterPreset {
-  id: 'normal' | 'kathiyawad' | 'rann_white' | 'golden_sunset' | 'vintage_70s' | 'navratri_glow';
-  nameGujarati: string;
-  nameEnglish: string;
+export type PhotoFilterId =
+  | 'normal'
+  | 'kathiyawad_warm'
+  | 'rann_sunset'
+  | 'vintage_postcard'
+  | 'navratri_vibrant'
+  | 'monochrome_heritage';
+
+export interface PhotoFilter {
+  id: PhotoFilterId;
+  name: string;
   cssFilter: string;
 }
 

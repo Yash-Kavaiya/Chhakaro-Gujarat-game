@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Camera, Download, Sparkles, Filter, Check } from 'lucide-react';
-import { LocationData, PhotoFilterPreset } from '../types';
+import { LocationData, PhotoFilterId } from '../types';
 import { soundManager } from '../audio/SoundManager';
 
 interface PhotoModeModalProps {
@@ -10,7 +10,7 @@ interface PhotoModeModalProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
 }
 
-const PHOTO_FILTERS: { id: PhotoFilterPreset; name: string; cssFilter: string }[] = [
+const PHOTO_FILTERS: { id: PhotoFilterId; name: string; cssFilter: string }[] = [
   { id: 'normal', name: 'અસલ (Natural)', cssFilter: 'none' },
   { id: 'kathiyawad_warm', name: 'કાઠિયાવાડી ગોલ્ડન (Warm)', cssFilter: 'sepia(0.3) saturate(1.4) brightness(1.05)' },
   { id: 'rann_sunset', name: 'રણ સનસેટ (Sunset Glow)', cssFilter: 'contrast(1.1) brightness(0.95) hue-rotate(-15deg) saturate(1.5)' },
@@ -25,7 +25,7 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
   currentLocation,
   canvasRef,
 }) => {
-  const [selectedFilter, setSelectedFilter] = useState<PhotoFilterPreset>('kathiyawad_warm');
+  const [selectedFilter, setSelectedFilter] = useState<PhotoFilterId>('kathiyawad_warm');
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [includeStamp, setIncludeStamp] = useState(true);
 
