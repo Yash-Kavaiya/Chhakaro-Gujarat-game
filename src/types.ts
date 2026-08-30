@@ -103,6 +103,11 @@ export interface PassportStamp {
   unlockedStory: string;
 }
 
+/** A set destination for the turn-by-turn arrow. The route is derived each frame, not stored. */
+export interface NavTarget {
+  locationId: string;
+}
+
 export interface FoodItem {
   id: string;
   nameGujarati: string;
