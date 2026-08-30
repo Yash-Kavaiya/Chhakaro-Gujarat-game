@@ -60,7 +60,7 @@ interface HUDProps {
   onOpenKaka: () => void;
   onOpenMissions: () => void;
   onOpenSouvenirs: () => void;
-  onOpenQuiz: () => void;
+  onOpenQuiz?: () => void;
   onInspectLandmark: (loc: LocationData) => void;
   onCapturePhoto: () => void;
   onRefuel?: () => void;
@@ -379,8 +379,9 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             id="hud-quiz-btn"
             onClick={onOpenQuiz}
-            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-indigo-500 hover:text-slate-950 text-indigo-300 text-xs font-bold transition-all active:scale-95 shadow"
-            title="ગુજરાત ક્વિઝ (Heritage Quiz)"
+            disabled={!onOpenQuiz}
+            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-indigo-500 hover:text-slate-950 text-indigo-300 text-xs font-bold transition-all active:scale-95 shadow disabled:opacity-50 disabled:cursor-not-allowed"
+            title={onOpenQuiz ? 'ગુજરાત ક્વિઝ' : 'આ સ્થળે ક્વિઝ ઉપલબ્ધ નથી'}
           >
             <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
             <span className="text-[10px] sm:text-[11px]">ક્વિઝ</span>

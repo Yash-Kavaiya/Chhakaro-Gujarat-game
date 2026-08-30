@@ -668,23 +668,6 @@ export class EnvironmentBuilder {
     this.createBoard(group, 'સુરત ટેક્સટાઇલ & ડાયમંડ સિટી — સુરતી લોચો સ્પેશિયલ', 0, 8, -12, 14, 2.0);
   }
 
-  /**
-   * Helper to create procedural roadside trees, streetlights, dhabas
-   */
-  private buildRoadsideScenery(locations: LocationData[]) {
-    const roadsideGroup = new THREE.Group();
-
-    // Scatter banyan, neem and palm trees along all zones
-    for (let i = 0; i < 90; i++) {
-      const angle = (i / 90) * Math.PI * 2;
-      const dist = 180 + (i % 5) * 80;
-      const tx = Math.cos(angle) * dist;
-      const tz = Math.sin(angle) * dist;
-      this.createTree(roadsideGroup, tx, tz, 2.2 + (i % 3) * 0.8);
-    }
-
-    this.scene.add(roadsideGroup);
-  }
 
   private createTree(parent: THREE.Group, x: number, z: number, scale: number = 1.0) {
     const tree = new THREE.Group();

@@ -69,6 +69,20 @@ export interface ChhakaroCustomization {
   seatCoverPattern?: 'bandhani' | 'kathiyawadi_patch' | 'classic_brown';
 }
 
+export interface GameProgress {
+  coins: number;
+  reputationStars: number;
+  visitedLocations: string[];
+  discoveredFoods: string[];
+  unlockedAchievements: string[];
+  collectedSouvenirs: string[];
+  completedMissions: string[];
+  quizScore: { correct: number; totalAnswered: number };
+  customization: ChhakaroCustomization;
+  totalKm: number;
+  lastLocationId: string;
+}
+
 export interface PassportStamp {
   locationId: string;
   locationName: string;
@@ -189,23 +203,25 @@ export interface MissionData {
 }
 
 export interface VehicleHealthState {
-  puncture?: boolean;
-  hasPuncture?: boolean;
-  punctureWheel?: 'front' | 'rear_left' | 'rear_right' | null;
-  engineHeating?: number; // 0 - 100
-  engineTempCelsius?: number; // In Celsius, normal ~82C
-  isOverheating?: boolean;
-  headlightBroken?: boolean;
-  headlightWorking?: boolean;
-  hornWorking?: boolean;
-  overallHealth?: number; // 0 - 100
-  conditionScore?: number;
-  fuelLiters?: number; // 0 - 100%
-  currentFuelLiters?: number;
+  // Fields that GameWorld always initialises and keeps updated.
+  fuelPercent: number;
   maxFuelLiters: number;
-  fuelPercent?: number;
+  currentFuelLiters: number;
+  fuelConsumptionRateKm: number; // liters/km
+  engineTempCelsius: number; // In Celsius, normal ~82C
+  isOverheating: boolean;
+  hasPuncture: boolean;
+  punctureWheel: 'front' | 'rear_left' | 'rear_right' | null;
+  headlightWorking: boolean;
+  hornWorking: boolean;
+  conditionScore: number;
+  // Genuinely-optional gear / hazard / legacy fields.
+  puncture?: boolean;
+  engineHeating?: number; // 0 - 100
+  headlightBroken?: boolean;
+  overallHealth?: number; // 0 - 100
+  fuelLiters?: number; // 0 - 100%
   fuelConsumptionRate?: number;
-  fuelConsumptionRateKm?: number;
   isEngineRunning?: boolean;
   currentGear?: number; // -1 (Reverse), 0 (Neutral), 1, 2, 3, 4
   isManualMode?: boolean;
@@ -242,10 +258,17 @@ export interface CulturalQuiz {
   coinReward: number;
 }
 
-export interface PhotoFilterPreset {
-  id: 'normal' | 'kathiyawad' | 'rann_white' | 'golden_sunset' | 'vintage_70s' | 'navratri_glow';
-  nameGujarati: string;
-  nameEnglish: string;
+export type PhotoFilterId =
+  | 'normal'
+  | 'kathiyawad_warm'
+  | 'rann_sunset'
+  | 'vintage_postcard'
+  | 'navratri_vibrant'
+  | 'monochrome_heritage';
+
+export interface PhotoFilter {
+  id: PhotoFilterId;
+  name: string;
   cssFilter: string;
 }
 

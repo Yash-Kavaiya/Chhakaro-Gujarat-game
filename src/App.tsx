@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GameWorld } from './world/GameWorld';
 import { HUD } from './components/HUD';
 import { KanjiKakaGuide } from './components/KanjiKakaGuide';
@@ -24,21 +24,32 @@ import {
   PassengerData,
   MissionData,
   SouvenirItem,
+  CulturalQuiz,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
-import { GUJARATI_PASSENGERS, GUJARAT_MISSIONS } from './data/passengers';
-import { GUJARAT_SOUVENIRS } from './data/souvenirs';
+import { GUJARAT_MISSIONS } from './data/missions';
+import { GUJARATI_SOUVENIRS } from './data/souvenirs';
+import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
+import { evaluateAchievements } from './state/achievements';
+import { isMissionComplete } from './state/missionMatching';
+import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<GameWorld | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Persisted player progress, loaded once from localStorage (vehicle sim state is never persisted).
+  const initial = useMemo(() => loadProgress(), []);
 
   // Game Lifecycle & Telemetry
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
-  const [currentLocation, setCurrentLocation] = useState<LocationData>(GUJARAT_LOCATIONS[0]);
+  const [currentLocation, setCurrentLocation] = useState<LocationData>(
+    GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
+  );
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
@@ -50,8 +61,8 @@ export default function App() {
   const [totalKm, setTotalKm] = useState(0);
 
   // Economy & Progression
-  const [coins, setCoins] = useState(1200);
-  const [reputationStars, setReputationStars] = useState(5.0);
+  const [coins, setCoins] = useState(initial.coins);
+  const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
   const [vehicleHealth, setVehicleHealth] = useState<VehicleHealthState>({
@@ -69,26 +80,28 @@ export default function App() {
   });
 
   // User Progress & Collection
-  const [visitedLocations, setVisitedLocations] = useState<string[]>(['rajkot']);
-  const [discoveredFoods, setDiscoveredFoods] = useState<string[]>(['gathiya']);
-  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(['ach_starter']);
-  const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>([]);
-  const [completedMissions, setCompletedMissions] = useState<string[]>([]);
-  const [quizScore, setQuizScore] = useState({ correct: 0, totalAnswered: 0 });
+  const [visitedLocations, setVisitedLocations] = useState<string[]>(initial.visitedLocations);
+  const [discoveredFoods, setDiscoveredFoods] = useState<string[]>(initial.discoveredFoods);
+  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(initial.unlockedAchievements);
+  const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>(initial.collectedSouvenirs);
+  const [completedMissions, setCompletedMissions] = useState<string[]>(initial.completedMissions);
+  const [quizScore, setQuizScore] = useState(initial.quizScore);
+
+  // Derived quiz for current location
+  const currentQuiz: CulturalQuiz | null =
+    GUJARATI_QUIZZES.find((q) => q.locationId === currentLocation.id) ?? null;
+
+  // Derived souvenirs for current location
+  const currentLocationSouvenirs = GUJARATI_SOUVENIRS
+    .filter((s) => s.locationId === currentLocation.id)
+    .map((s) => ({ ...s, acquired: collectedSouvenirs.includes(s.id) }));
 
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
   // Customization
-  const [customization, setCustomization] = useState<ChhakaroCustomization>({
-    bodyColor: 0xd9531e, // Vibrant saffron
-    stickerText: 'જય ગરવી ગુજરાત',
-    hornType: 'classic_bulb',
-    flagColor: 0xf97316,
-    hasMirrorTassels: true,
-    hasCanopy: true,
-  });
+  const [customization, setCustomization] = useState<ChhakaroCustomization>(initial.customization);
 
   // Modals
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -112,6 +125,7 @@ export default function App() {
 
     const world = new GameWorld(containerRef.current, customization);
     worldRef.current = world;
+    canvasRef.current = world.canvas;
 
     world.startVehicleEngine();
 
@@ -166,83 +180,70 @@ export default function App() {
       window.removeEventListener('keydown', handleGlobalKeys);
       world.destroy();
       worldRef.current = null;
+      canvasRef.current = null;
     };
   }, [isGameStarted]);
 
-  // Handle location visit updates & achievement checks
-  const markLocationVisited = (locId: string) => {
-    setVisitedLocations((prev) => {
-      if (prev.includes(locId)) return prev;
-      const next = [...prev, locId];
-      checkAchievements(next, discoveredFoods, totalKm);
-      return next;
+  // Unlock achievements in reaction to committed progress. Side effects (sound + banner)
+  // are deliberately kept out of every setState updater so React 19 StrictMode's dev
+  // double-invoke of updaters can't fire the achievement sound or banner twice.
+  useEffect(() => {
+    const earned = evaluateAchievements({ visitedLocations, discoveredFoods, totalKm });
+    const added = earned.filter((id) => !unlockedAchievements.includes(id));
+    if (added.length === 0) return;
+    soundManager.playAchievementSound();
+    setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);
+    setUnlockedAchievements(earned);
+  }, [visitedLocations, discoveredFoods, totalKm, unlockedAchievements]);
+
+  // Persist the GameProgress slice on every change. saveProgress debounces the actual
+  // localStorage write (~500ms), so this staying cheap is what keeps driving smooth even
+  // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
+  useEffect(() => {
+    saveProgress({
+      coins,
+      reputationStars,
+      visitedLocations,
+      discoveredFoods,
+      unlockedAchievements,
+      collectedSouvenirs,
+      completedMissions,
+      quizScore,
+      customization,
+      totalKm,
+      lastLocationId: currentLocation.id,
     });
+  }, [
+    coins,
+    reputationStars,
+    visitedLocations,
+    discoveredFoods,
+    unlockedAchievements,
+    collectedSouvenirs,
+    completedMissions,
+    quizScore,
+    customization,
+    totalKm,
+    currentLocation,
+  ]);
+
+  // Force any pending debounced write to disk before the tab unloads.
+  useEffect(() => {
+    const onHide = () => flushProgress();
+    window.addEventListener('beforeunload', onHide);
+    return () => window.removeEventListener('beforeunload', onHide);
+  }, []);
+
+  // Handle location visit updates. These stay pure prev -> next reducers (safe against
+  // stale closures in the once-registered world callbacks). Achievement unlocking is a
+  // reaction to the committed progress — see the effect above — never a side effect
+  // inside a setState updater (React 19 StrictMode double-invokes updaters in dev).
+  const markLocationVisited = (locId: string) => {
+    setVisitedLocations((prev) => (prev.includes(locId) ? prev : [...prev, locId]));
   };
 
   const handleDiscoverFood = (foodId: string) => {
-    setDiscoveredFoods((prev) => {
-      if (prev.includes(foodId)) return prev;
-      const next = [...prev, foodId];
-      checkAchievements(visitedLocations, next, totalKm);
-      return next;
-    });
-  };
-
-  const checkAchievements = (visited: string[], foods: string[], km: number) => {
-    const newUnlocked = [...unlockedAchievements];
-
-    // Check Saurashtra Safari
-    const saurashtraList = ['rajkot', 'dwarka', 'somnath', 'gir', 'junagadh', 'palitana'];
-    if (saurashtraList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_saurashtra')) {
-      newUnlocked.push('ach_saurashtra');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Rann King
-    if (visited.includes('kutch') && !newUnlocked.includes('ach_rann')) {
-      newUnlocked.push('ach_rann');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Road to Heaven Rider
-    if (visited.includes('dholavira') && !newUnlocked.includes('ach_road_to_heaven')) {
-      newUnlocked.push('ach_road_to_heaven');
-      soundManager.playAchievementSound();
-    }
-
-    // Check UNESCO Heritage Master (Rani Ki Vav, Champaner, Dholavira, Ahmedabad)
-    const unescoList = ['patan_modhera', 'pavagadh', 'dholavira', 'ahmedabad'];
-    if (unescoList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_unesco_master')) {
-      newUnlocked.push('ach_unesco_master');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Gir Lion
-    if (visited.includes('gir') && !newUnlocked.includes('ach_gir_lion')) {
-      newUnlocked.push('ach_gir_lion');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Pilgrim (Dwarka, Somnath, Palitana, Pavagadh)
-    const pilgrimList = ['dwarka', 'somnath', 'palitana', 'pavagadh'];
-    if (pilgrimList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_pilgrim')) {
-      newUnlocked.push('ach_pilgrim');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Foodie
-    if (foods.length >= 6 && !newUnlocked.includes('ach_foodie')) {
-      newUnlocked.push('ach_foodie');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Grand Gujarat Explorer (all 16 places)
-    if (visited.length >= 16 && !newUnlocked.includes('ach_all_gujarat')) {
-      newUnlocked.push('ach_all_gujarat');
-      soundManager.playAchievementSound();
-    }
-
-    setUnlockedAchievements(newUnlocked);
+    setDiscoveredFoods((prev) => (prev.includes(foodId) ? prev : [...prev, foodId]));
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
@@ -259,7 +260,7 @@ export default function App() {
 
   // Check if passenger mission arrived at destination
   const checkMissionCompletion = (arrivedLocationId: string) => {
-    if (activeMission && activeMission.dropLocationId === arrivedLocationId) {
+    if (isMissionComplete(activeMission, arrivedLocationId)) {
       // Completed mission!
       const reward = activeMission.rewardCoins;
       setCoins((c) => c + reward);
@@ -280,25 +281,37 @@ export default function App() {
     }
   };
 
-  const handleAcceptPassenger = (passenger: PassengerData, mission: MissionData) => {
-    setActivePassenger(passenger);
+  const handleAcceptMission = (mission: MissionData) => {
+    const passenger = mission.passenger ?? null;
     setActiveMission(mission);
-    if (worldRef.current) {
-      worldRef.current.setPassenger(passenger);
-    }
+    setActivePassenger(passenger);
+    if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
     soundManager.playChime();
-    const promptMsg = `${passenger.nameGujarati} છકડામાં બેસી ગયા! તેમનું ગંતવ્ય: ${mission.dropLocationId}`;
-    setFloatingBanner(promptMsg);
-    soundManager.speakGujaratiTextFallback(`${passenger.nameGujarati} છકડામાં બેસી ગયા! ચાલો ${mission.dropLocationId} તરફ!`);
+    const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
+    setFloatingBanner(`${mission.titleGujarati} — ચાલો ${dest} તરફ!`);
+    soundManager.speakGujaratiTextFallback(`નવું મિશન: ${mission.titleGujarati}. ચાલો ${dest} તરફ!`);
   };
 
-  const handleBuySouvenir = (item: SouvenirItem) => {
-    if (coins >= item.priceCoins) {
-      setCoins((c) => c - item.priceCoins);
-      setCollectedSouvenirs((prev) => [...prev, item.id]);
-      soundManager.playAchievementSound();
-      setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
-    }
+  const handleCancelMission = () => {
+    setActiveMission(null);
+    setActivePassenger(null);
+    if (worldRef.current) worldRef.current.setPassenger(null);
+    setFloatingBanner('મિશન રદ થયું.');
+  };
+
+  const handleBuySouvenir = (souvenirId: string) => {
+    const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
+    if (!item || collectedSouvenirs.includes(souvenirId) || coins < item.priceCoins) return;
+    setCoins((c) => c - item.priceCoins);
+    setCollectedSouvenirs((prev) => [...prev, souvenirId]);
+    soundManager.playChime();
+    setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
+  };
+
+  const handleQuizCorrect = (rewardCoins: number) => {
+    setCoins((c) => c + rewardCoins);
+    setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
+    setFloatingBanner(`સાચો જવાબ! +₹${rewardCoins}`);
   };
 
   const handleRefuel = () => {
@@ -392,6 +405,11 @@ export default function App() {
     }
   };
 
+  const handleResetProgress = () => {
+    clearProgress();
+    window.location.reload();
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none">
       {/* 3D Canvas Container */}
@@ -448,7 +466,7 @@ export default function App() {
             onOpenKaka={() => setIsKakaOpen(true)}
             onOpenMissions={() => setIsMissionsOpen(true)}
             onOpenSouvenirs={() => setIsSouvenirsOpen(true)}
-            onOpenQuiz={() => setIsQuizOpen(true)}
+            onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
             onInspectLandmark={(loc) => setInspectingLandmark(loc)}
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
             onRefuel={handleRefuel}
@@ -487,38 +505,36 @@ export default function App() {
         isOpen={isMissionsOpen}
         onClose={() => setIsMissionsOpen(false)}
         currentLocation={currentLocation}
-        activePassenger={activePassenger}
+        availableMissions={GUJARAT_MISSIONS}
         activeMission={activeMission}
+        activePassenger={activePassenger}
         coins={coins}
         reputationStars={reputationStars}
         completedMissions={completedMissions}
-        onAcceptPassenger={handleAcceptPassenger}
+        onAcceptMission={handleAcceptMission}
+        onCancelMission={handleCancelMission}
       />
 
       <SouvenirShopModal
         isOpen={isSouvenirsOpen}
         onClose={() => setIsSouvenirsOpen(false)}
-        currentLocation={currentLocation}
+        souvenirs={currentLocationSouvenirs}
         coins={coins}
-        collectedSouvenirs={collectedSouvenirs}
-        onBuyItem={handleBuySouvenir}
+        onBuySouvenir={handleBuySouvenir}
       />
 
       <QuizModal
         isOpen={isQuizOpen}
         onClose={() => setIsQuizOpen(false)}
-        currentLocation={currentLocation}
-        coins={coins}
-        onRewardCoins={(amount) => setCoins((c) => c + amount)}
+        quiz={currentQuiz}
+        onAnswerCorrect={handleQuizCorrect}
       />
 
       <PhotoModeModal
         isOpen={isPhotoModeOpen}
         onClose={() => setIsPhotoModeOpen(false)}
         currentLocation={currentLocation}
-        customization={customization}
-        cameraMode={cameraMode}
-        totalKm={totalKm}
+        canvasRef={canvasRef}
       />
 
       <PassportModal
@@ -527,6 +543,7 @@ export default function App() {
         visitedLocations={visitedLocations}
         unlockedAchievements={unlockedAchievements}
         totalDistanceKm={totalKm}
+        onResetProgress={handleResetProgress}
       />
 
       <FoodPassportModal
