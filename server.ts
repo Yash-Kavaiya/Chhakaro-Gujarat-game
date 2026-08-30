@@ -124,7 +124,7 @@ app.post('/api/gemini/guide', async (req, res) => {
 `;
 
     // Multi-model fallback sequence to handle temporary 503 high-demand spikes
-    const candidateModels = ['gemini-3.7-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
     let lastError = null;
     let rawText = '';
 
