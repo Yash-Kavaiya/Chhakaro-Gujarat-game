@@ -41,6 +41,10 @@ export function loadProgress(): GameProgress {
     if (!isPlainObject(parsed) || parsed.version !== SCHEMA_VERSION || !isPlainObject(parsed.progress)) {
       return { ...DEFAULT_PROGRESS };
     }
+    // Validate every field against its default. A partial or type-mangled save must never
+    // crash the app or poison a field downstream (undefined subfields → NaN). The two known
+    // nested objects are deep-merged onto defaults so a partial quizScore/customization in
+    // the save keeps its sibling subfields.
     const p = parsed.progress as Partial<GameProgress>;
     return {
       coins: typeof p.coins === 'number' && Number.isFinite(p.coins) ? p.coins : DEFAULT_PROGRESS.coins,

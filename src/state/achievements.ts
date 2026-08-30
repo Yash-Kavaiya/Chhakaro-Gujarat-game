@@ -1,7 +1,6 @@
 export interface AchievementInput {
   visitedLocations: string[];
   discoveredFoods: string[];
-  totalKm: number;
 }
 
 const SAURASHTRA = ['rajkot', 'dwarka', 'somnath', 'gir', 'junagadh', 'palitana'];

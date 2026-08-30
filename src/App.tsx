@@ -105,6 +105,22 @@ export default function App() {
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
+  // Live refs that always mirror the active mission/passenger. The GameWorld proximity
+  // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
+  // effect below, so a plain closure over `activeMission` would freeze at its first value
+  // (null). checkMissionCompletion reads these refs instead. A useEffect sync is the robust
+  // choice — imperative writes in the handlers are only belt-and-braces.
+  const activeMissionRef = useRef<MissionData | null>(null);
+  const activePassengerRef = useRef<PassengerData | null>(null);
+
+  useEffect(() => {
+    activeMissionRef.current = activeMission;
+  }, [activeMission]);
+
+  useEffect(() => {
+    activePassengerRef.current = activePassenger;
+  }, [activePassenger]);
+
   // Customization
   const [customization, setCustomization] = useState<ChhakaroCustomization>(initial.customization);
 
@@ -211,13 +227,16 @@ export default function App() {
   // are deliberately kept out of every setState updater so React 19 StrictMode's dev
   // double-invoke of updaters can't fire the achievement sound or banner twice.
   useEffect(() => {
-    const earned = evaluateAchievements({ visitedLocations, discoveredFoods, totalKm }) || [];
+    if (!isGameStarted) return;
+    const earned = evaluateAchievements({ visitedLocations, discoveredFoods }) || [];
     const added = earned.filter((id) => !(unlockedAchievements || []).includes(id));
     if (added.length === 0) return;
     soundManager.playAchievementSound();
     setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);
-    setUnlockedAchievements(earned);
-  }, [visitedLocations, discoveredFoods, totalKm, unlockedAchievements]);
+    // Union, never wholesale-replace: an id in the saved set that a future renamed/removed
+    // rule no longer reproduces must not be silently dropped.
+    setUnlockedAchievements((prev) => [...new Set([...prev, ...earned])]);
+  }, [isGameStarted, visitedLocations, discoveredFoods, unlockedAchievements]);
 
   // Persist the GameProgress slice on every change. saveProgress debounces the actual
   // localStorage write (~500ms), so this staying cheap is what keeps driving smooth even
@@ -295,16 +314,24 @@ export default function App() {
     }, 8000);
   };
 
-  // Check if passenger mission arrived at destination
+  // Check if passenger mission arrived at destination. Invoked from the once-registered
+  // GameWorld callbacks, so it reads the live refs — never the state — to avoid a stale
+  // closure. onLandmarkApproach AND onLocationChange both fire for the same arrival, so the
+  // ref is cleared synchronously at the top of the completion branch: the second call then
+  // sees a null mission and is a no-op (no double award).
   const checkMissionCompletion = (arrivedLocationId: string) => {
-    if (isMissionComplete(activeMission, arrivedLocationId)) {
-      // Completed mission!
-      const reward = activeMission.rewardCoins;
+    const mission = activeMissionRef.current;
+    if (isMissionComplete(mission, arrivedLocationId)) {
+      const passenger = activePassengerRef.current;
+      activeMissionRef.current = null;
+      activePassengerRef.current = null;
+
+      const reward = mission.rewardCoins;
       setCoins((c) => c + reward);
       setReputationStars((s) => Math.min(5.0, Number((s + 0.1).toFixed(1))));
-      setCompletedMissions((m) => [...m, activeMission.id]);
+      setCompletedMissions((m) => [...m, mission.id]);
 
-      const successMsg = `શાબાશ! મુસાફર ${activePassenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
+      const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
       setFloatingBanner(`🎉 ${successMsg}`);
       soundManager.playAchievementSound();
       soundManager.speakGujaratiTextFallback(successMsg);
@@ -322,6 +349,10 @@ export default function App() {
     const passenger = mission.passenger ?? null;
     setActiveMission(mission);
     setActivePassenger(passenger);
+    // Belt-and-braces: keep the refs live this same tick so a fast-travel fired before the
+    // sync effect commits still sees the accepted mission.
+    activeMissionRef.current = mission;
+    activePassengerRef.current = passenger;
     if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
     soundManager.playChime();
     const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
@@ -332,6 +363,8 @@ export default function App() {
   const handleCancelMission = () => {
     setActiveMission(null);
     setActivePassenger(null);
+    activeMissionRef.current = null;
+    activePassengerRef.current = null;
     if (worldRef.current) worldRef.current.setPassenger(null);
     setFloatingBanner('મિશન રદ થયું.');
   };
@@ -339,8 +372,17 @@ export default function App() {
   const handleBuySouvenir = (souvenirId: string) => {
     const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
     if (!item || collectedSouvenirs.includes(souvenirId) || coins < item.priceCoins) return;
+    // Make the collection add atomic + conditional so a double-click before re-render can't
+    // charge twice or push the id twice. `bought` gates the charge to the one call that
+    // actually appended the souvenir.
+    let bought = false;
+    setCollectedSouvenirs((prev) => {
+      if (prev.includes(souvenirId)) return prev;
+      bought = true;
+      return [...prev, souvenirId];
+    });
+    if (!bought) return;
     setCoins((c) => c - item.priceCoins);
-    setCollectedSouvenirs((prev) => [...prev, souvenirId]);
     soundManager.playChime();
     setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
   };

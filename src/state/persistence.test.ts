@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   SAVE_KEY, SCHEMA_VERSION, DEFAULT_PROGRESS,
   loadProgress, saveProgress, clearProgress, flushProgress,
 } from './persistence';
 
 beforeEach(() => localStorage.clear());
+afterEach(() => {
+  vi.useRealTimers();
+  clearProgress();
+});
 
 describe('persistence', () => {
   it('returns defaults when nothing is stored', () => {
@@ -16,6 +20,17 @@ describe('persistence', () => {
     saveProgress(p);
     flushProgress();
     expect(loadProgress()).toEqual(p);
+  });
+
+  it('deep-merges partial nested objects onto defaults', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: SCHEMA_VERSION,
+      progress: { coins: 50, quizScore: { correct: 2 }, customization: { bodyColor: 123 } },
+    }));
+    const p = loadProgress();
+    expect(p.quizScore).toEqual({ correct: 2, totalAnswered: 0 });
+    expect(p.customization.stickerText).toBe(DEFAULT_PROGRESS.customization.stickerText);
+    expect(p.customization.bodyColor).toBe(123);
   });
 
   it('resets to defaults on schema version mismatch', () => {
