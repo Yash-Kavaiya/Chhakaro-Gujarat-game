@@ -69,6 +69,20 @@ export interface ChhakaroCustomization {
   seatCoverPattern?: 'bandhani' | 'kathiyawadi_patch' | 'classic_brown';
 }
 
+export interface GameProgress {
+  coins: number;
+  reputationStars: number;
+  visitedLocations: string[];
+  discoveredFoods: string[];
+  unlockedAchievements: string[];
+  collectedSouvenirs: string[];
+  completedMissions: string[];
+  quizScore: { correct: number; totalAnswered: number };
+  customization: ChhakaroCustomization;
+  totalKm: number;
+  lastLocationId: string;
+}
+
 export interface PassportStamp {
   locationId: string;
   locationName: string;

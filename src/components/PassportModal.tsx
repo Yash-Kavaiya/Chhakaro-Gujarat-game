@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Award, MapPin, Check, ShieldCheck, Trophy, Sparkles } from 'lucide-react';
 import { LocationData } from '../types';
 import { GUJARAT_LOCATIONS, ACHIEVEMENTS } from '../data/locations';
@@ -9,6 +9,7 @@ interface PassportModalProps {
   visitedLocations: string[];
   unlockedAchievements: string[];
   totalDistanceKm: number;
+  onResetProgress: () => void;
 }
 
 export const PassportModal: React.FC<PassportModalProps> = ({
@@ -17,7 +18,15 @@ export const PassportModal: React.FC<PassportModalProps> = ({
   visitedLocations,
   unlockedAchievements,
   totalDistanceKm,
+  onResetProgress,
 }) => {
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
+  // Never leave the modal parked in its "confirm delete" state between openings.
+  useEffect(() => {
+    if (!isOpen) setConfirmingReset(false);
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const completionPct = Math.round((visitedLocations.length / GUJARAT_LOCATIONS.length) * 100);
@@ -158,6 +167,36 @@ export const PassportModal: React.FC<PassportModalProps> = ({
               })}
             </div>
           </div>
+        </div>
+
+        {/* Footer: reset progress with inline confirm */}
+        <div className="p-4 bg-slate-950/80 border-t border-slate-800 flex items-center justify-end gap-3">
+          {confirmingReset ? (
+            <>
+              <span className="text-xs text-rose-300 font-bold mr-auto">
+                ખાતરી છે? બધી પ્રગતિ ભૂંસાઈ જશે
+              </span>
+              <button
+                onClick={onResetProgress}
+                className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black transition-colors"
+              >
+                હા, ભૂંસો
+              </button>
+              <button
+                onClick={() => setConfirmingReset(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-colors"
+              >
+                રદ કરો
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmingReset(true)}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-900/60 border border-slate-700 hover:border-rose-500/60 text-slate-300 hover:text-rose-200 text-xs font-bold transition-colors"
+            >
+              🔄 નવેસરથી શરૂ કરો
+            </button>
+          )}
         </div>
       </div>
     </div>

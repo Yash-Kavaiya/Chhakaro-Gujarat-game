@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GameWorld } from './world/GameWorld';
 import { HUD } from './components/HUD';
 import { KanjiKakaGuide } from './components/KanjiKakaGuide';
@@ -33,17 +33,23 @@ import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
 import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
+import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<GameWorld | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  // Persisted player progress, loaded once from localStorage (vehicle sim state is never persisted).
+  const initial = useMemo(() => loadProgress(), []);
+
   // Game Lifecycle & Telemetry
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
-  const [currentLocation, setCurrentLocation] = useState<LocationData>(GUJARAT_LOCATIONS[0]);
+  const [currentLocation, setCurrentLocation] = useState<LocationData>(
+    GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
+  );
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
@@ -55,8 +61,8 @@ export default function App() {
   const [totalKm, setTotalKm] = useState(0);
 
   // Economy & Progression
-  const [coins, setCoins] = useState(1200);
-  const [reputationStars, setReputationStars] = useState(5.0);
+  const [coins, setCoins] = useState(initial.coins);
+  const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
   const [vehicleHealth, setVehicleHealth] = useState<VehicleHealthState>({
@@ -74,12 +80,12 @@ export default function App() {
   });
 
   // User Progress & Collection
-  const [visitedLocations, setVisitedLocations] = useState<string[]>(['rajkot']);
-  const [discoveredFoods, setDiscoveredFoods] = useState<string[]>(['gathiya']);
-  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(['ach_starter']);
-  const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>([]);
-  const [completedMissions, setCompletedMissions] = useState<string[]>([]);
-  const [quizScore, setQuizScore] = useState({ correct: 0, totalAnswered: 0 });
+  const [visitedLocations, setVisitedLocations] = useState<string[]>(initial.visitedLocations);
+  const [discoveredFoods, setDiscoveredFoods] = useState<string[]>(initial.discoveredFoods);
+  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(initial.unlockedAchievements);
+  const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>(initial.collectedSouvenirs);
+  const [completedMissions, setCompletedMissions] = useState<string[]>(initial.completedMissions);
+  const [quizScore, setQuizScore] = useState(initial.quizScore);
 
   // Derived quiz for current location
   const currentQuiz: CulturalQuiz | null =
@@ -95,14 +101,7 @@ export default function App() {
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
   // Customization
-  const [customization, setCustomization] = useState<ChhakaroCustomization>({
-    bodyColor: 0xd9531e, // Vibrant saffron
-    stickerText: 'જય ગરવી ગુજરાત',
-    hornType: 'classic_bulb',
-    flagColor: 0xf97316,
-    hasMirrorTassels: true,
-    hasCanopy: true,
-  });
+  const [customization, setCustomization] = useState<ChhakaroCustomization>(initial.customization);
 
   // Modals
   const [isMapOpen, setIsMapOpen] = useState(false);
@@ -196,6 +195,44 @@ export default function App() {
     setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`);
     setUnlockedAchievements(earned);
   }, [visitedLocations, discoveredFoods, totalKm, unlockedAchievements]);
+
+  // Persist the GameProgress slice on every change. saveProgress debounces the actual
+  // localStorage write (~500ms), so this staying cheap is what keeps driving smooth even
+  // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
+  useEffect(() => {
+    saveProgress({
+      coins,
+      reputationStars,
+      visitedLocations,
+      discoveredFoods,
+      unlockedAchievements,
+      collectedSouvenirs,
+      completedMissions,
+      quizScore,
+      customization,
+      totalKm,
+      lastLocationId: currentLocation.id,
+    });
+  }, [
+    coins,
+    reputationStars,
+    visitedLocations,
+    discoveredFoods,
+    unlockedAchievements,
+    collectedSouvenirs,
+    completedMissions,
+    quizScore,
+    customization,
+    totalKm,
+    currentLocation,
+  ]);
+
+  // Force any pending debounced write to disk before the tab unloads.
+  useEffect(() => {
+    const onHide = () => flushProgress();
+    window.addEventListener('beforeunload', onHide);
+    return () => window.removeEventListener('beforeunload', onHide);
+  }, []);
 
   // Handle location visit updates. These stay pure prev -> next reducers (safe against
   // stale closures in the once-registered world callbacks). Achievement unlocking is a
@@ -368,6 +405,11 @@ export default function App() {
     }
   };
 
+  const handleResetProgress = () => {
+    clearProgress();
+    window.location.reload();
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none">
       {/* 3D Canvas Container */}
@@ -501,6 +543,7 @@ export default function App() {
         visitedLocations={visitedLocations}
         unlockedAchievements={unlockedAchievements}
         totalDistanceKm={totalKm}
+        onResetProgress={handleResetProgress}
       />
 
       <FoodPassportModal
