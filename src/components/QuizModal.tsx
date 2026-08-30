@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, HelpCircle, CheckCircle2, XCircle, Award, ArrowRight } from 'lucide-react';
 import { CulturalQuiz } from '../types';
 import { soundManager } from '../audio/SoundManager';
@@ -18,6 +18,14 @@ export const QuizModal: React.FC<QuizModalProps> = ({
 }) => {
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [isSubmitted, setIsSubmitted] = useState(false);
+
+  // The modal is always mounted, so per-quiz answer state must be reset when the quiz
+  // prop changes — otherwise every other location's quiz shows a stale submitted state
+  // and handleSelect's `if (isSubmitted) return` makes it permanently unanswerable.
+  useEffect(() => {
+    setSelectedAnswer(null);
+    setIsSubmitted(false);
+  }, [quiz?.id]);
 
   if (!isOpen || !quiz) return null;
 

@@ -84,7 +84,7 @@ src/state/              Pure, unit-tested game logic (each file has a sibling .t
                                              Vehicle sim state is deliberately NOT persisted.
                         - achievements.ts    evaluateAchievements(input) → unlocked id set.
                         - missionMatching.ts isMissionComplete(mission, arrivedLocationId).
-src/components/         HUD + modals: KanjiKakaGuide, GujaratMapModal, PassportModal,
+src/components/         HUD + modals: HUD, KanjiKakaGuide, GujaratMapModal, PassportModal,
                         FoodPassportModal, GarageModal, PassengerMissionModal,
                         SouvenirShopModal, QuizModal, PhotoModeModal, LandmarkInspectModal,
                         StartScreen, MobileControls, InCarRadio, SpeedometerGauge.
