@@ -705,6 +705,7 @@ export default function App() {
         visitedLocations={visitedLocations}
         unlockedAchievements={unlockedAchievements}
         totalDistanceKm={totalKm}
+        stampMeta={stampMeta}
         onResetProgress={handleResetProgress}
       />
 
