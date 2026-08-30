@@ -31,6 +31,8 @@ import { GUJARAT_MISSIONS } from './data/missions';
 import { GUJARATI_SOUVENIRS } from './data/souvenirs';
 import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
+import { evaluateAchievements } from './state/achievements';
+import { isMissionComplete } from './state/missionMatching';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -188,7 +190,7 @@ export default function App() {
     setVisitedLocations((prev) => {
       if (prev.includes(locId)) return prev;
       const next = [...prev, locId];
-      checkAchievements(next, discoveredFoods, totalKm);
+      applyAchievements(next, discoveredFoods, totalKm);
       return next;
     });
   };
@@ -197,66 +199,22 @@ export default function App() {
     setDiscoveredFoods((prev) => {
       if (prev.includes(foodId)) return prev;
       const next = [...prev, foodId];
-      checkAchievements(visitedLocations, next, totalKm);
+      applyAchievements(visitedLocations, next, totalKm);
       return next;
     });
   };
 
-  const checkAchievements = (visited: string[], foods: string[], km: number) => {
-    const newUnlocked = [...unlockedAchievements];
-
-    // Check Saurashtra Safari
-    const saurashtraList = ['rajkot', 'dwarka', 'somnath', 'gir', 'junagadh', 'palitana'];
-    if (saurashtraList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_saurashtra')) {
-      newUnlocked.push('ach_saurashtra');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Rann King
-    if (visited.includes('kutch') && !newUnlocked.includes('ach_rann')) {
-      newUnlocked.push('ach_rann');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Road to Heaven Rider
-    if (visited.includes('dholavira') && !newUnlocked.includes('ach_road_to_heaven')) {
-      newUnlocked.push('ach_road_to_heaven');
-      soundManager.playAchievementSound();
-    }
-
-    // Check UNESCO Heritage Master (Rani Ki Vav, Champaner, Dholavira, Ahmedabad)
-    const unescoList = ['patan_modhera', 'pavagadh', 'dholavira', 'ahmedabad'];
-    if (unescoList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_unesco_master')) {
-      newUnlocked.push('ach_unesco_master');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Gir Lion
-    if (visited.includes('gir') && !newUnlocked.includes('ach_gir_lion')) {
-      newUnlocked.push('ach_gir_lion');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Pilgrim (Dwarka, Somnath, Palitana, Pavagadh)
-    const pilgrimList = ['dwarka', 'somnath', 'palitana', 'pavagadh'];
-    if (pilgrimList.every((id) => visited.includes(id)) && !newUnlocked.includes('ach_pilgrim')) {
-      newUnlocked.push('ach_pilgrim');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Foodie
-    if (foods.length >= 6 && !newUnlocked.includes('ach_foodie')) {
-      newUnlocked.push('ach_foodie');
-      soundManager.playAchievementSound();
-    }
-
-    // Check Grand Gujarat Explorer (all 16 places)
-    if (visited.length >= 16 && !newUnlocked.includes('ach_all_gujarat')) {
-      newUnlocked.push('ach_all_gujarat');
-      soundManager.playAchievementSound();
-    }
-
-    setUnlockedAchievements(newUnlocked);
+  const applyAchievements = (visited: string[], foods: string[], km: number) => {
+    const earned = evaluateAchievements({ visitedLocations: visited, discoveredFoods: foods, totalKm: km });
+    setUnlockedAchievements((prev) => {
+      const added = earned.filter((id) => !prev.includes(id));
+      if (added.length > 0) {
+        soundManager.playAchievementSound();
+        const names = added.length;
+        setFloatingBanner(`🏅 નવું અચીવમેન્ટ અનલૉક! (${names})`);
+      }
+      return earned.length === prev.length && added.length === 0 ? prev : earned;
+    });
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
@@ -273,7 +231,7 @@ export default function App() {
 
   // Check if passenger mission arrived at destination
   const checkMissionCompletion = (arrivedLocationId: string) => {
-    if (activeMission && activeMission.dropLocationId === arrivedLocationId) {
+    if (isMissionComplete(activeMission, arrivedLocationId)) {
       // Completed mission!
       const reward = activeMission.rewardCoins;
       setCoins((c) => c + reward);
