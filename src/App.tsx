@@ -82,6 +82,11 @@ export default function App() {
   const currentQuiz: CulturalQuiz | null =
     GUJARATI_QUIZZES.find((q) => q.locationId === currentLocation.id) ?? null;
 
+  // Derived souvenirs for current location
+  const currentLocationSouvenirs = GUJARATI_SOUVENIRS
+    .filter((s) => s.locationId === currentLocation.id)
+    .map((s) => ({ ...s, acquired: collectedSouvenirs.includes(s.id) }));
+
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
@@ -304,13 +309,13 @@ export default function App() {
     setFloatingBanner('મિશન રદ થયું.');
   };
 
-  const handleBuySouvenir = (item: SouvenirItem) => {
-    if (coins >= item.priceCoins) {
-      setCoins((c) => c - item.priceCoins);
-      setCollectedSouvenirs((prev) => [...prev, item.id]);
-      soundManager.playAchievementSound();
-      setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
-    }
+  const handleBuySouvenir = (souvenirId: string) => {
+    const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
+    if (!item || collectedSouvenirs.includes(souvenirId) || coins < item.priceCoins) return;
+    setCoins((c) => c - item.priceCoins);
+    setCollectedSouvenirs((prev) => [...prev, souvenirId]);
+    soundManager.playChime();
+    setFloatingBanner(`🛍️ ${item.nameGujarati} ખરીદ્યું!`);
   };
 
   const handleQuizCorrect = (rewardCoins: number) => {
@@ -518,10 +523,9 @@ export default function App() {
       <SouvenirShopModal
         isOpen={isSouvenirsOpen}
         onClose={() => setIsSouvenirsOpen(false)}
-        currentLocation={currentLocation}
+        souvenirs={currentLocationSouvenirs}
         coins={coins}
-        collectedSouvenirs={collectedSouvenirs}
-        onBuyItem={handleBuySouvenir}
+        onBuySouvenir={handleBuySouvenir}
       />
 
       <QuizModal
