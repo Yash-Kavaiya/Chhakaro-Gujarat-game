@@ -43,6 +43,7 @@ import { loadProgress, saveProgress, clearProgress, flushProgress } from './stat
 import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 import { navState, NavState } from './state/navigation';
 import { nearestUnvisited } from './state/exploration';
+import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -136,6 +137,63 @@ export default function App() {
     navCuesRef.current = { start: false, half: false, near: false };
     if (!navTarget) setNavLive(null);
   }, [navTarget]);
+
+  // Bounded ring of the player's last few actions — Kaka reacts to these. pushKakaEvent is
+  // called from the reward paths; the tick state forces the kakaContext memo to refresh.
+  const recentEventsRef = useRef<KakaEvent[]>([]);
+  const [kakaEventTick, setKakaEventTick] = useState(0);
+  const pushKakaEvent = (e: KakaEvent) => {
+    recentEventsRef.current = [e, ...recentEventsRef.current].slice(0, 5);
+    setKakaEventTick((t) => t + 1);
+  };
+  const locName = (id: string | null | undefined): string =>
+    (id && GUJARAT_LOCATIONS.find((l) => l.id === id)?.nameGujarati) || id || '';
+
+  // The one live snapshot every Kaka utterance is grounded in. Consumed by the companion
+  // hook and the proactive-trigger effect (added in later M2 tasks).
+  const kakaContext: KakaContext = useMemo(
+    () =>
+      buildKakaContext({
+        zoneId: currentLocation.id,
+        zoneNameGujarati: currentLocation.nameGujarati,
+        zoneRegion: currentLocation.region,
+        nearbyLandmarkId: nearbyLandmark?.id ?? null,
+        visitedCount: visitedLocations.length,
+        totalLocations: GUJARAT_LOCATIONS.length,
+        mission: activeMission
+          ? {
+              titleGujarati: activeMission.titleGujarati,
+              dropNameGujarati: locName(activeMission.dropLocationId),
+            }
+          : null,
+        nav:
+          navTarget && navLive
+            ? { targetNameGujarati: locName(navTarget.locationId), distanceM: navLive.distanceM }
+            : null,
+        speedKmh: speed,
+        vehiclePos: worldRef.current
+          ? { x: worldRef.current.vehiclePos.x, z: worldRef.current.vehiclePos.z }
+          : null,
+        fuelPercent: vehicleHealth.fuelPercent,
+        weather,
+        timeOfDayPhase: timeOfDay?.phase ?? null,
+        recentEvents: recentEventsRef.current,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      currentLocation,
+      nearbyLandmark,
+      visitedLocations,
+      activeMission,
+      navTarget,
+      navLive,
+      speed,
+      vehicleHealth,
+      weather,
+      timeOfDay,
+      kakaEventTick,
+    ],
+  );
 
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
@@ -422,6 +480,7 @@ export default function App() {
       prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
     );
     setCoins((c) => c + FIRST_VISIT_COINS);
+    pushKakaEvent({ kind: 'stamp', nameGujarati: locName(locId) });
     notify({ text: `📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`, tone: 'reward', speak: false });
   };
 
@@ -437,6 +496,7 @@ export default function App() {
     setCoins((prev) => prev + coinsReward);
     setReputationStars((prev) => Math.min(5, prev + 1));
     const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
+    pushKakaEvent({ kind: 'food', nameGujarati: foodName });
     notify({
       text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`,
       tone: 'reward',
@@ -469,6 +529,7 @@ export default function App() {
       setCompletedMissions((m) => [...m, mission.id]);
 
       const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
+      pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
 
@@ -520,12 +581,14 @@ export default function App() {
     });
     if (!bought) return;
     setCoins((c) => c - item.priceCoins);
+    pushKakaEvent({ kind: 'souvenir', nameGujarati: item.nameGujarati });
     notify({ text: `🛍️ ${item.nameGujarati} ખરીદ્યું!`, tone: 'reward', speak: false });
   };
 
   const handleQuizCorrect = (rewardCoins: number) => {
     setCoins((c) => c + rewardCoins);
     setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
+    pushKakaEvent({ kind: 'quiz', correct: true });
     notify({ text: `સાચો જવાબ! +₹${rewardCoins}`, tone: 'reward', speak: false });
   };
 
@@ -535,6 +598,7 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.refuel(10);
       }
+      pushKakaEvent({ kind: 'refuel' });
       notify({ text: '⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!', tone: 'reward', speak: false });
     }
   };
@@ -545,6 +609,7 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.repairPunctureAndCool();
       }
+      pushKakaEvent({ kind: 'repair' });
       notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
     }
   };
