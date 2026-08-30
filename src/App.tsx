@@ -35,6 +35,7 @@ import { soundManager } from './audio/SoundManager';
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<GameWorld | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   // Game Lifecycle & Telemetry
   const [isGameStarted, setIsGameStarted] = useState(false);
@@ -123,6 +124,7 @@ export default function App() {
 
     const world = new GameWorld(containerRef.current, customization);
     worldRef.current = world;
+    canvasRef.current = world.canvas;
 
     world.startVehicleEngine();
 
@@ -177,6 +179,7 @@ export default function App() {
       window.removeEventListener('keydown', handleGlobalKeys);
       world.destroy();
       worldRef.current = null;
+      canvasRef.current = null;
     };
   }, [isGameStarted]);
 
@@ -539,9 +542,7 @@ export default function App() {
         isOpen={isPhotoModeOpen}
         onClose={() => setIsPhotoModeOpen(false)}
         currentLocation={currentLocation}
-        customization={customization}
-        cameraMode={cameraMode}
-        totalKm={totalKm}
+        canvasRef={canvasRef}
       />
 
       <PassportModal

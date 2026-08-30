@@ -7,7 +7,7 @@ interface PhotoModeModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentLocation: LocationData;
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
 }
 
 const PHOTO_FILTERS: { id: PhotoFilterId; name: string; cssFilter: string }[] = [

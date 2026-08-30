@@ -102,7 +102,11 @@ export class GameWorld {
     this.camera.position.set(0, 5, 10);
 
     // 3. Renderer setup
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: 'high-performance',
+      preserveDrawingBuffer: true,
+    });
     this.renderer.setSize(container.clientWidth, container.clientHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -169,6 +173,10 @@ export class GameWorld {
 
     // Start render loop
     this.animate();
+  }
+
+  public get canvas(): HTMLCanvasElement {
+    return this.renderer.domElement;
   }
 
   private initRainSystem() {
