@@ -597,6 +597,7 @@ export default function App() {
             rpm={rpm}
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
+            visitedLocations={visitedLocations}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}

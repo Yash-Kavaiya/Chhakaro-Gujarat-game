@@ -39,6 +39,7 @@ interface HUDProps {
   rpm: number;
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
+  visitedLocations: string[];
   isEngineOn: boolean;
   isHeadlightOn: boolean;
   isHazardOn?: boolean;
@@ -81,6 +82,7 @@ export const HUD: React.FC<HUDProps> = ({
   rpm,
   currentLocation,
   nearbyLandmark,
+  visitedLocations,
   isHeadlightOn,
   isHazardOn,
   cameraMode,
@@ -569,6 +571,25 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         )}
 
+        {/* Landmark-approach prompt — lighter than the facility CTA; the whole pill is the
+            action so it works for touch as well as the E key. */}
+        {nearbyLandmark && (() => {
+          const seen = visitedLocations.includes(nearbyLandmark.id);
+          return (
+            <button
+              onClick={() => onInspectLandmark(nearbyLandmark)}
+              className="bg-slate-900/80 border border-amber-500/50 hover:border-amber-400 px-4 py-2 rounded-2xl shadow-lg flex items-center gap-2.5 text-xs w-full pointer-events-auto transition-colors active:scale-[0.99]"
+            >
+              <span className="text-xl shrink-0">{seen ? '✓' : '⛳'}</span>
+              <span className="font-black text-amber-200 truncate">{nearbyLandmark.nameGujarati}</span>
+              <span className="text-slate-400 shrink-0">—</span>
+              <span className="text-slate-300 shrink-0">
+                <span className="font-bold text-amber-300">E</span> દબાવો · {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
+              </span>
+            </button>
+          );
+        })()}
+
         {/* Active Passenger In Chhakaro Info Card */}
         {activePassenger && (
           <div className="bg-slate-950/85 border border-amber-500/40 p-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs w-full">
@@ -673,8 +694,3 @@ export const HUD: React.FC<HUDProps> = ({
     </div>
   );
 };
-
-
-function distCapActive(loc: LocationData) {
-  return loc.id === 'gir';
-}
