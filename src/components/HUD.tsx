@@ -31,8 +31,11 @@ import {
   Check,
 } from 'lucide-react';
 import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { GameWorld } from '../world/GameWorld';
+import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
 import { InCarRadio } from './InCarRadio';
+import { MiniMap } from './MiniMap';
 
 interface HUDProps {
   speed: number;
@@ -40,6 +43,8 @@ interface HUDProps {
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
   visitedLocations: string[];
+  worldRef: React.RefObject<GameWorld | null>;
+  navTargetId: string | null;
   isEngineOn: boolean;
   isHeadlightOn: boolean;
   isHazardOn?: boolean;
@@ -83,6 +88,8 @@ export const HUD: React.FC<HUDProps> = ({
   currentLocation,
   nearbyLandmark,
   visitedLocations,
+  worldRef,
+  navTargetId,
   isHeadlightOn,
   isHazardOn,
   cameraMode,
@@ -605,10 +612,20 @@ export const HUD: React.FC<HUDProps> = ({
         )}
       </div>
 
-      {/* Bottom HUD: In-Car Radio (Left) & Menu Navigation Dock (Right) */}
+      {/* Bottom HUD: MiniMap + In-Car Radio (Left) & Menu Navigation Dock (Right) */}
       <div className="flex flex-col sm:flex-row items-end sm:items-end justify-between gap-3 pointer-events-none w-full">
-        {/* Left Side: In-Car Radio Component */}
-        <InCarRadio />
+        {/* Left Side: MiniMap above the In-Car Radio */}
+        <div className="flex flex-col gap-2 items-start">
+          <MiniMap
+            worldRef={worldRef}
+            locations={GUJARAT_LOCATIONS}
+            visitedLocations={visitedLocations}
+            currentLocationId={currentLocation.id}
+            navTargetId={navTargetId}
+            activeMission={activeMission ?? null}
+          />
+          <InCarRadio />
+        </div>
 
         {/* Right Side: Bottom Menu Navigation Dock */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-950/85 backdrop-blur-md p-2 rounded-2xl border border-amber-600/60 shadow-2xl pointer-events-auto">

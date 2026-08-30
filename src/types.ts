@@ -38,6 +38,9 @@ export interface LocationData {
   culturalHighlights: string[];
   landmarks: string[];
   worldPosition: { x: number; z: number };
+  /** Optional hand-placed 2D coordinate (same units as worldPosition) for any zone whose 3D
+   *  projection lands cramped on the flat map. MiniMap / GujaratMapModal fall back to worldPosition. */
+  mapPosition?: { x: number; z: number };
   zoneRadius: number;
   environmentTheme:
     | 'village'

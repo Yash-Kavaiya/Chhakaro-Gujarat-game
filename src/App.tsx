@@ -598,6 +598,8 @@ export default function App() {
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
+            worldRef={worldRef}
+            navTargetId={null}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
