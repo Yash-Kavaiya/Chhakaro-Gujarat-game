@@ -14,6 +14,7 @@ import { PhotoModeModal } from './components/PhotoModeModal';
 import { MobileControls } from './components/MobileControls';
 import { StartScreen } from './components/StartScreen';
 import { RoadsideEncounterModal } from './components/RoadsideEncounterModal';
+import { NavBanner } from './components/NavBanner';
 import {
   LocationData,
   CameraMode,
@@ -40,6 +41,7 @@ import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
+import { navState, NavState } from './state/navigation';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -117,9 +119,22 @@ export default function App() {
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
-  // Turn-by-turn nav target (a mission drop, or "માર્ગ બતાવો" from the map). The live route
-  // is derived per frame in Task 10; here it just holds the chosen destination.
+  // Turn-by-turn nav. `navTarget` is the chosen destination (a mission drop or "માર્ગ બતાવો");
+  // `navLive` is the throttled per-frame route (distance + heading-relative angle + arrived).
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
+  const [navLive, setNavLive] = useState<NavState | null>(null);
+  // world.onVehicleMove is registered once, so it reads navTarget through a ref.
+  const navTargetRef = useRef<NavTarget | null>(null);
+  const navTickRef = useRef(0);
+  const navStartDistRef = useRef<number | null>(null);
+  const navCuesRef = useRef({ start: false, half: false, near: false });
+
+  useEffect(() => {
+    navTargetRef.current = navTarget;
+    navStartDistRef.current = null;
+    navCuesRef.current = { start: false, half: false, near: false };
+    if (!navTarget) setNavLive(null);
+  }, [navTarget]);
 
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
@@ -189,6 +204,44 @@ export default function App() {
       setSpeed(newSpeed);
       setRpm(newRpm);
       setTotalKm(world.totalDistanceDriven / 1000);
+    };
+
+    // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
+    // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
+    // because this callback is registered exactly once.
+    world.onVehicleMove = (x, z, heading) => {
+      const target = navTargetRef.current;
+      if (!target) return;
+      const now = performance.now();
+      if (now - navTickRef.current < 250) return; // ~4 Hz
+      navTickRef.current = now;
+
+      const loc = GUJARAT_LOCATIONS.find((l) => l.id === target.locationId);
+      if (!loc) return;
+      const ns = navState({ x, z }, heading, loc.worldPosition, loc.zoneRadius);
+      setNavLive(ns);
+
+      if (navStartDistRef.current == null) navStartDistRef.current = ns.distanceM;
+      const startDist = navStartDistRef.current;
+      const cues = navCuesRef.current;
+      if (!cues.start) {
+        cues.start = true;
+        soundManager.speakGujaratiTextFallback(
+          `${loc.nameGujarati} તરફ ચાલો — અંતર આશરે ${(ns.distanceM / 1000).toFixed(1)} કિમી`,
+        );
+      } else if (!cues.half && ns.distanceM < startDist * 0.5) {
+        cues.half = true;
+        soundManager.speakGujaratiTextFallback(`અડધો રસ્તો કપાયો — ${loc.nameGujarati} નજીક આવે છે`);
+      } else if (!cues.near && ns.distanceM < loc.zoneRadius * 1.8) {
+        cues.near = true;
+        soundManager.speakGujaratiTextFallback(`લગભગ પહોંચી ગયા! ${loc.nameGujarati} સામે જ છે`);
+      }
+
+      if (ns.arrived) {
+        notify({ text: `પહોંચી ગયા! ${loc.nameGujarati}`, tone: 'reward' });
+        checkMissionCompletion(loc.id);
+        setNavTarget(null);
+      }
     };
 
     world.onTimeOfDayUpdate = (timeState) => {
@@ -384,9 +437,10 @@ export default function App() {
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
 
-      // Clear passenger from vehicle
+      // Clear passenger from vehicle + the nav arrow
       setActivePassenger(null);
       setActiveMission(null);
+      setNavTarget(null);
       if (worldRef.current) {
         worldRef.current.setPassenger(null);
       }
@@ -402,6 +456,7 @@ export default function App() {
     activeMissionRef.current = mission;
     activePassengerRef.current = passenger;
     if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
+    setNavTarget({ locationId: mission.dropLocationId });
     const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
     notify({ text: `${mission.titleGujarati} — ચાલો ${dest} તરફ!`, tone: 'reward' });
   };
@@ -411,6 +466,7 @@ export default function App() {
     setActivePassenger(null);
     activeMissionRef.current = null;
     activePassengerRef.current = null;
+    setNavTarget(null);
     if (worldRef.current) worldRef.current.setPassenger(null);
     notify({ text: 'મિશન રદ થયું.', tone: 'info', speak: false });
   };
@@ -546,6 +602,7 @@ export default function App() {
 
   const handleSetDestination = (loc: LocationData) => {
     setNavTarget({ locationId: loc.id });
+    notify({ text: `${loc.nameGujarati} તરફ ચાલો — માર્ગ બતાવું છું`, tone: 'info' });
   };
 
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
@@ -596,6 +653,18 @@ export default function App() {
             કાકા બોલો
           </button>
         </div>
+      )}
+
+      {/* Turn-by-turn nav banner (mission drop, or "માર્ગ બતાવો" from the map) */}
+      {isGameStarted && navTarget && navLive && (
+        <NavBanner
+          targetName={
+            GUJARAT_LOCATIONS.find((l) => l.id === navTarget.locationId)?.nameGujarati ?? navTarget.locationId
+          }
+          distanceM={navLive.distanceM}
+          relativeDeg={navLive.relativeDeg}
+          onCancel={() => setNavTarget(null)}
+        />
       )}
 
       {/* Primary In-Game HUD */}
