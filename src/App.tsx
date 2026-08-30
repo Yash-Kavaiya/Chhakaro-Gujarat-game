@@ -24,10 +24,12 @@ import {
   PassengerData,
   MissionData,
   SouvenirItem,
+  CulturalQuiz,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
 import { GUJARATI_SOUVENIRS } from './data/souvenirs';
+import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
 
 export default function App() {
@@ -75,6 +77,10 @@ export default function App() {
   const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>([]);
   const [completedMissions, setCompletedMissions] = useState<string[]>([]);
   const [quizScore, setQuizScore] = useState({ correct: 0, totalAnswered: 0 });
+
+  // Derived quiz for current location
+  const currentQuiz: CulturalQuiz | null =
+    GUJARATI_QUIZZES.find((q) => q.locationId === currentLocation.id) ?? null;
 
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
@@ -307,6 +313,12 @@ export default function App() {
     }
   };
 
+  const handleQuizCorrect = (rewardCoins: number) => {
+    setCoins((c) => c + rewardCoins);
+    setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
+    setFloatingBanner(`સાચો જવાબ! +₹${rewardCoins}`);
+  };
+
   const handleRefuel = () => {
     if (coins >= 500) {
       setCoins((c) => c - 500);
@@ -454,7 +466,7 @@ export default function App() {
             onOpenKaka={() => setIsKakaOpen(true)}
             onOpenMissions={() => setIsMissionsOpen(true)}
             onOpenSouvenirs={() => setIsSouvenirsOpen(true)}
-            onOpenQuiz={() => setIsQuizOpen(true)}
+            onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
             onInspectLandmark={(loc) => setInspectingLandmark(loc)}
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
             onRefuel={handleRefuel}
@@ -515,9 +527,8 @@ export default function App() {
       <QuizModal
         isOpen={isQuizOpen}
         onClose={() => setIsQuizOpen(false)}
-        currentLocation={currentLocation}
-        coins={coins}
-        onRewardCoins={(amount) => setCoins((c) => c + amount)}
+        quiz={currentQuiz}
+        onAnswerCorrect={handleQuizCorrect}
       />
 
       <PhotoModeModal
