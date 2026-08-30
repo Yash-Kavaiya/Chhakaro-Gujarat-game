@@ -29,6 +29,7 @@ import {
   TimeFreezeMode,
   RoadsideEncounter,
   PassportStampRecord,
+  NavTarget,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -115,6 +116,10 @@ export default function App() {
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
+
+  // Turn-by-turn nav target (a mission drop, or "માર્ગ બતાવો" from the map). The live route
+  // is derived per frame in Task 10; here it just holds the chosen destination.
+  const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
 
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
@@ -539,6 +544,10 @@ export default function App() {
     }
   };
 
+  const handleSetDestination = (loc: LocationData) => {
+    setNavTarget({ locationId: loc.id });
+  };
+
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
     setCustomization(custom);
     if (worldRef.current) {
@@ -599,7 +608,7 @@ export default function App() {
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
             worldRef={worldRef}
-            navTargetId={null}
+            navTargetId={navTarget?.locationId ?? null}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
@@ -663,6 +672,7 @@ export default function App() {
         currentLocation={currentLocation}
         visitedLocations={visitedLocations}
         onFastTravel={handleFastTravel}
+        onSetDestination={handleSetDestination}
       />
 
       <PassengerMissionModal
