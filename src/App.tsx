@@ -28,6 +28,7 @@ import {
   CulturalQuiz,
   TimeFreezeMode,
   RoadsideEncounter,
+  PassportStampRecord,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -91,6 +92,15 @@ export default function App() {
   const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>(initial.collectedSouvenirs);
   const [completedMissions, setCompletedMissions] = useState<string[]>(initial.completedMissions);
   const [quizScore, setQuizScore] = useState(initial.quizScore);
+  const [stampMeta, setStampMeta] = useState<Record<string, PassportStampRecord>>(initial.stampMeta);
+
+  // Mirrors visitedLocations for recordVisit, which is called from the once-registered
+  // world.onLocationChange closure — a plain read of visitedLocations there would be frozen
+  // at its initial value and re-award coins on every zone re-entry.
+  const visitedLocationsRef = useRef<string[]>(initial.visitedLocations);
+  useEffect(() => {
+    visitedLocationsRef.current = visitedLocations;
+  }, [visitedLocations]);
 
   // Derived quiz for current location
   const currentQuiz: CulturalQuiz | null =
@@ -181,7 +191,7 @@ export default function App() {
 
     world.onLocationChange = (loc) => {
       setCurrentLocation(loc);
-      markLocationVisited(loc.id);
+      recordVisit(loc.id);
       checkMissionCompletion(loc.id);
     };
 
@@ -254,7 +264,7 @@ export default function App() {
       customization,
       totalKm,
       lastLocationId: currentLocation.id,
-      stampMeta: initial.stampMeta,
+      stampMeta,
     });
   }, [
     coins,
@@ -268,6 +278,7 @@ export default function App() {
     customization,
     totalKm,
     currentLocation,
+    stampMeta,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -277,12 +288,27 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onHide);
   }, []);
 
-  // Handle location visit updates. These stay pure prev -> next reducers (safe against
-  // stale closures in the once-registered world callbacks). Achievement unlocking is a
-  // reaction to the committed progress — see the effect above — never a side effect
-  // inside a setState updater (React 19 StrictMode double-invokes updaters in dev).
-  const markLocationVisited = (locId: string) => {
+  // The single entry point for "the player is now at locId". Adds to visitedLocations and,
+  // on the FIRST visit only, writes the passport stamp (date + odometer) and awards a
+  // one-time reward. Safe to call from the stale world.onLocationChange closure: the guard
+  // reads visitedLocationsRef, and the ref is bumped synchronously so a paired callback
+  // fire (onLandmarkApproach + onLocationChange for the same arrival) is a no-op.
+  // Achievement unlocking stays a reaction to committed progress (see the effect above) —
+  // never a side effect inside a setState updater (StrictMode double-invokes updaters).
+  const FIRST_VISIT_COINS = 100;
+
+  const recordVisit = (locId: string) => {
+    if (visitedLocationsRef.current.includes(locId)) return;
+    const km = worldRef.current ? worldRef.current.totalDistanceDriven / 1000 : totalKm;
+    visitedLocationsRef.current = [...visitedLocationsRef.current, locId];
     setVisitedLocations((prev) => (prev.includes(locId) ? prev : [...prev, locId]));
+    setStampMeta((prev) =>
+      prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
+    );
+    setCoins((c) => c + FIRST_VISIT_COINS);
+    soundManager.playChime();
+    setFloatingBanner(`📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`);
+    setTimeout(() => setFloatingBanner(null), 4000);
   };
 
   const handleDiscoverFood = (foodId: string) => {
@@ -416,7 +442,7 @@ export default function App() {
 
   const handleStartGame = (startLoc: LocationData) => {
     setCurrentLocation(startLoc);
-    markLocationVisited(startLoc.id);
+    recordVisit(startLoc.id);
     setIsGameStarted(true);
 
     soundManager.startEngine();
@@ -496,7 +522,7 @@ export default function App() {
     if (worldRef.current) {
       worldRef.current.teleportToLocation(loc);
       setCurrentLocation(loc);
-      markLocationVisited(loc.id);
+      recordVisit(loc.id);
       triggerLandmarkWelcome(loc);
       checkMissionCompletion(loc.id);
     }
@@ -680,7 +706,7 @@ export default function App() {
           onClose={() => setInspectingLandmark(null)}
           location={inspectingLandmark}
           isVisited={visitedLocations.includes(inspectingLandmark.id)}
-          onMarkVisited={(locId) => markLocationVisited(locId)}
+          onMarkVisited={(locId) => recordVisit(locId)}
           onOpenKaka={() => {
             setInspectingLandmark(null);
             setIsKakaOpen(true);
