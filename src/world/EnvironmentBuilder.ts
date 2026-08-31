@@ -245,11 +245,19 @@ export class EnvironmentBuilder {
     this.nightEmissiveMaterials.forEach(({ mat, base }) => {
       mat.emissiveIntensity = f * base;
     });
+    // A PointLight with intensity 0 is NOT culled by Three.js — WebGLLights counts every light
+    // whose .visible !== false, so leaving these on would keep ~42 point lights in every
+    // material's shader (NUM_POINT_LIGHTS) even at noon. Toggle .visible so they leave the
+    // shader entirely by day and only cost a recompile at the dawn/dusk crossover.
     this.streetLamps.forEach((l) => {
-      l.intensity = f > 0.35 ? 3.5 : 0;
+      const lit = f > 0.35;
+      l.visible = lit;
+      l.intensity = lit ? 3.5 : 0;
     });
     this.aartiLights.forEach((l) => {
-      l.intensity = THREE.MathUtils.clamp(1 - Math.abs(f - 0.4) * 3, 0, 1) * 4;
+      const intensity = THREE.MathUtils.clamp(1 - Math.abs(f - 0.4) * 3, 0, 1) * 4;
+      l.visible = intensity > 0.01;
+      l.intensity = intensity;
     });
   }
 
@@ -642,21 +650,35 @@ export class EnvironmentBuilder {
       case 'dwarka':
         this.buildDwarkadhishTemple(landmarkGroup);
         break;
-      case 'somnath':
-        landmarkGroup.add(somnath.build());
+      case 'somnath': {
+        // −Z setback so the hero landmark sits back off the junction roundabout, clear of the
+        // junction-plaza rings. Values carried over from the pre-M3 zone builders.
+        const g = somnath.build();
+        g.position.z = -40;
+        landmarkGroup.add(g);
         break;
-      case 'gir':
-        landmarkGroup.add(girGate.build());
+      }
+      case 'gir': {
+        const g = girGate.build();
+        g.position.z = -20;
+        landmarkGroup.add(g);
         break;
+      }
       case 'junagadh':
         this.buildGirnarMountain(landmarkGroup);
         break;
-      case 'kutch':
-        landmarkGroup.add(whiteRann.build());
+      case 'kutch': {
+        const g = whiteRann.build();
+        g.position.z = -30;
+        landmarkGroup.add(g);
         break;
-      case 'statue_of_unity':
-        landmarkGroup.add(statueOfUnity.build());
+      }
+      case 'statue_of_unity': {
+        const g = statueOfUnity.build();
+        g.position.z = -55;
+        landmarkGroup.add(g);
         break;
+      }
       case 'saputara':
         this.buildSaputaraGhats(landmarkGroup);
         break;
@@ -666,9 +688,12 @@ export class EnvironmentBuilder {
       case 'surat':
         this.buildSuratTapiBridge(landmarkGroup);
         break;
-      case 'patan_modhera':
-        landmarkGroup.add(raniKiVav.build());
+      case 'patan_modhera': {
+        const g = raniKiVav.build();
+        g.position.z = -25;
+        landmarkGroup.add(g);
         break;
+      }
       case 'pavagadh':
         this.buildPavagadhChampaner(landmarkGroup);
         break;
@@ -810,112 +835,6 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Zone: Somnath Jyotirlinga Temple & Seashore
-   */
-  private buildSomnathTemple(group: THREE.Group) {
-    const templeGroup = new THREE.Group();
-    templeGroup.position.set(0, 0, -40);
-
-    // Grand Somnath Sabha Mandap & Shikhar
-    const mainHall = new THREE.Mesh(new THREE.BoxGeometry(26, 9, 28), this.sandstoneMat);
-    mainHall.position.y = 4.5;
-    mainHall.castShadow = true;
-
-    const shikhar = new THREE.Mesh(new THREE.ConeGeometry(10, 28, 8), this.sandstoneMat);
-    shikhar.position.set(0, 23, -6);
-
-    const goldDome = new THREE.Mesh(new THREE.SphereGeometry(1.8, 16, 16), this.goldMat);
-    goldDome.position.set(0, 37.5, -6);
-
-    // Trishul & Om Flag
-    const trishul = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 5), this.goldMat);
-    trishul.position.set(0, 41, -6);
-    templeGroup.add(mainHall, shikhar, goldDome, trishul);
-
-    // Baan-Stambh (Arrow Pillar) pointing South Pole
-    const baanStambh = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 14, 12), this.sandstoneMat);
-    baanStambh.position.set(24, 7, 10);
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2, 8), this.goldMat);
-    arrow.position.set(24, 15, 10);
-    arrow.rotation.z = Math.PI;
-    templeGroup.add(baanStambh, arrow);
-
-    group.add(templeGroup);
-
-    // Rocky ocean coastline with waves
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(350, 140), this.waterMat);
-    sea.rotation.x = -Math.PI / 2;
-    sea.position.set(0, 0.1, -120);
-    group.add(sea);
-  }
-
-  /**
-   * Zone: Sasan Gir Forest & Wildlife
-   */
-  private buildGirForestZone(group: THREE.Group) {
-    // Teak & Banyan Dense Forest trees (strictly checked for world position road clearance)
-    for (let i = 0; i < 56; i++) {
-      const angle = (i / 56) * Math.PI * 2;
-      const radius = 30 + Math.random() * 75;
-      const tx = Math.cos(angle) * radius;
-      const tz = Math.sin(angle) * radius - 20;
-      const worldX = 150 + tx; // Gir position is (150, 550)
-      const worldZ = 550 + tz;
-      if (!RoadGeometryHelper.isInsideRoadOrClearance(worldX, worldZ, 12.0)) {
-        this.createTree(group, tx, tz, 2.2 + Math.random() * 1.8, true);
-      }
-    }
-
-    // Wooden Safari Watchtower
-    const towerGroup = new THREE.Group();
-    towerGroup.position.set(28, 0, -25);
-    const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg1.position.set(-2, 6, -2);
-    const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg2.position.set(2, 6, -2);
-    const leg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg3.position.set(-2, 6, 2);
-    const leg4 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg4.position.set(2, 6, 2);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(5.5, 3.5, 5.5), this.woodMat);
-    cabin.position.set(0, 13, 0);
-    towerGroup.add(leg1, leg2, leg3, leg4, cabin);
-    group.add(towerGroup);
-
-    // 3D Asiatic Lions (King of Gir) resting on rock
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(3.5), this.stoneMat);
-    rock.position.set(-18, 2, -22);
-    group.add(rock);
-
-    // Asiatic Lion model (Procedural golden body, majestic mane, tail)
-    const lionGroup = new THREE.Group();
-    lionGroup.position.set(-18, 4.2, -22);
-    const lionMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.8 });
-    const maneMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
-
-    const lionBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 2.2, 8, 8), lionMat);
-    lionBody.rotation.z = Math.PI / 2;
-    const lionMane = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 10), maneMat);
-    lionMane.position.set(-1.2, 0.6, 0);
-    const lionHead = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), lionMat);
-    lionHead.position.set(-1.5, 0.6, 0);
-    lionGroup.add(lionBody, lionMane, lionHead);
-    group.add(lionGroup);
-
-    // Dancing Peacock (Mor)
-    const peacockGroup = new THREE.Group();
-    peacockGroup.position.set(12, 1, -12);
-    const pMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
-    const pBody = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 8), pMat);
-    pBody.rotation.x = Math.PI / 3;
-    const pFeathers = new THREE.Mesh(new THREE.CircleGeometry(1.4, 12), new THREE.MeshStandardMaterial({ color: 0x15803d, side: THREE.DoubleSide }));
-    pFeathers.position.set(0, 0.8, 0.6);
-    pFeathers.rotation.x = 0.3;
-    peacockGroup.add(pBody, pFeathers);
-    group.add(peacockGroup);
-  }
-
-  /**
    * Zone: Junagadh & Girnar Mountain
    */
   private buildGirnarMountain(group: THREE.Group) {
@@ -951,119 +870,6 @@ export class EnvironmentBuilder {
       pathGroup.add(step);
     }
     group.add(pathGroup);
-  }
-
-  /**
-   * Zone: Great Rann of Kutch (White Salt Desert & Bhungas)
-   */
-  private buildWhiteRann(group: THREE.Group) {
-    // Salt flat ground overlay (Sparkling White Rann)
-    const saltGround = new THREE.Mesh(new THREE.PlaneGeometry(450, 450), this.saltMat);
-    saltGround.rotation.x = -Math.PI / 2;
-    saltGround.position.set(0, 0.05, -30);
-    group.add(saltGround);
-
-    // Traditional Kutchi Bhungas (Round mud huts with conical thatch roof & mirror Lippan art)
-    for (let b = 0; b < 6; b++) {
-      const bx = -35 + (b % 3) * 35;
-      const bz = -35 - Math.floor(b / 3) * 30;
-
-      const bhungaGroup = new THREE.Group();
-      bhungaGroup.position.set(bx, 0, bz);
-
-      const hutWall = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 4.5, 18), this.sandstoneMat);
-      hutWall.position.y = 2.25;
-
-      const hutRoof = new THREE.Mesh(new THREE.ConeGeometry(5.8, 4.2, 18), this.thatchMat);
-      hutRoof.position.y = 6.4;
-
-      // Lippan art mirror accent ring
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(4.55, 0.1, 8, 24), this.goldMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 2.5;
-
-      bhungaGroup.add(hutWall, hutRoof, ring);
-      group.add(bhungaGroup);
-    }
-
-    // Colorful Rann Utsav Handloom Tents
-    for (let t = -30; t <= 30; t += 20) {
-      const tentGeo = new THREE.ConeGeometry(4, 5, 4);
-      const tentMat = new THREE.MeshStandardMaterial({
-        color: t === 0 ? 0xdc2626 : t < 0 ? 0x2563eb : 0xf59e0b,
-      });
-      const tent = new THREE.Mesh(tentGeo, tentMat);
-      tent.position.set(t, 2.5, 15);
-      tent.rotation.y = Math.PI / 4;
-      group.add(tent);
-    }
-
-    // Camel Cart
-    const camel = this.createCamel();
-    camel.position.set(18, 0, -12);
-    group.add(camel);
-  }
-
-  /**
-   * Zone: Statue of Unity (182m Sardar Patel Statue & Sardar Sarovar Dam)
-   */
-  private buildStatueOfUnity(group: THREE.Group) {
-    const souGroup = new THREE.Group();
-    souGroup.position.set(0, 0, -55);
-
-    // Bronze alloy material for Sardar Patel
-    const bronzeMat = new THREE.MeshStandardMaterial({
-      color: 0x92400e, // Rich bronze patina
-      metalness: 0.7,
-      roughness: 0.35,
-    });
-
-    // Star-shaped base podium
-    const basePodium = new THREE.Mesh(new THREE.CylinderGeometry(14, 18, 12, 6), this.sandstoneMat);
-    basePodium.position.y = 6;
-    souGroup.add(basePodium);
-
-    // Sardar Patel 3D Colossus Figure
-    // Legs
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(4.0, 18, 4.5), bronzeMat);
-    legL.position.set(-3.2, 21, 0);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(4.0, 18, 4.5), bronzeMat);
-    legR.position.set(3.2, 21, 0);
-
-    // Traditional Kurta / Dhoti Torso
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(11, 22, 7.5), bronzeMat);
-    torso.position.set(0, 41, 0);
-
-    // Shawl draped over shoulder
-    const shawl = new THREE.Mesh(new THREE.BoxGeometry(12.5, 14, 8.2), bronzeMat);
-    shawl.position.set(0, 44, 0);
-
-    // Head and Face of Sardar Patel
-    const head = new THREE.Mesh(new THREE.SphereGeometry(3.6, 16, 16), bronzeMat);
-    head.position.set(0, 55, 0);
-
-    souGroup.add(legL, legR, torso, shawl, head);
-    group.add(souGroup);
-
-    // Narmada River
-    const narmada = new THREE.Mesh(new THREE.PlaneGeometry(350, 60), this.waterMat);
-    narmada.rotation.x = -Math.PI / 2;
-    narmada.position.set(0, 0.1, -15);
-    group.add(narmada);
-
-    // Bridge over Narmada
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(80, 2, 8), this.stoneMat);
-    bridge.position.set(0, 1.5, -15);
-    group.add(bridge);
-
-    // Valley of Flowers colorful garden stripes
-    const colors = [0xec4899, 0xfacc15, 0xa855f7, 0xef4444, 0x3b82f6];
-    colors.forEach((c, idx) => {
-      const flowerBed = new THREE.Mesh(new THREE.PlaneGeometry(28, 4), new THREE.MeshStandardMaterial({ color: c }));
-      flowerBed.rotation.x = -Math.PI / 2;
-      flowerBed.position.set(-25 + idx * 12, 0.08, 12);
-      group.add(flowerBed);
-    });
   }
 
   /**
@@ -1263,122 +1069,6 @@ export class EnvironmentBuilder {
     const board = new THREE.Mesh(new THREE.PlaneGeometry(width, height), boardMat);
     board.position.set(x, y, z);
     parent.add(board);
-  }
-
-  /**
-   * Zone: Patan (Rani Ki Vav UNESCO Stepwell) & Modhera Sun Temple
-   */
-  private buildPatanModheraLandmark(group: THREE.Group) {
-    const complex = new THREE.Group();
-    complex.position.set(0, 0, -25);
-
-    // 1. Rani Ki Vav - 5 Stepped Multi-Tiered Subterranean Structure
-    const vavGroup = new THREE.Group();
-    vavGroup.position.set(-20, 0, 0);
-
-    // Terraced stepwell levels
-    const levels = 5;
-    for (let i = 0; i < levels; i++) {
-      const w = 28 - i * 4;
-      const d = 36 - i * 5;
-      const y = -i * 2.2;
-
-      const terrace = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d), this.sandstoneMat);
-      terrace.position.set(0, y - 1.1, i * 3);
-      vavGroup.add(terrace);
-
-      // Colonnaded carved pillars on each terrace
-      const pillarCount = 6 - i;
-      for (let p = 0; p < pillarCount; p++) {
-        const px = -w / 2 + 2 + p * (w / (pillarCount || 1));
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 3.5, 8), this.sandstoneMat);
-        pillar.position.set(px, y + 1.75, i * 3);
-        vavGroup.add(pillar);
-      }
-    }
-
-    // Sacred water pool at lowest level
-    const pool = new THREE.Mesh(new THREE.BoxGeometry(10, 1, 12), this.waterMat);
-    pool.position.set(0, -levels * 2.2 + 0.5, (levels - 1) * 3);
-    vavGroup.add(pool);
-
-    // Solanki carved entrance Torana Arch
-    const torana = new THREE.Group();
-    torana.position.set(0, 0, -16);
-    const tL = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 8, 8), this.sandstoneMat);
-    tL.position.set(-6, 4, 0);
-    const tR = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 8, 8), this.sandstoneMat);
-    tR.position.set(6, 4, 0);
-    const tBeam = new THREE.Mesh(new THREE.BoxGeometry(15, 1.2, 1.2), this.sandstoneMat);
-    tBeam.position.set(0, 7.5, 0);
-    const kalash = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.0, 8), this.goldMat);
-    kalash.position.set(0, 9.0, 0);
-    torana.add(tL, tR, tBeam, kalash);
-    vavGroup.add(torana);
-
-    // 2. Modhera Sun Temple (Sabha Mandap & Surya Kund)
-    const modheraGroup = new THREE.Group();
-    modheraGroup.position.set(22, 0, 0);
-
-    // Sabha Mandap Stepped Pyramid Hall
-    const mandapBase = new THREE.Mesh(new THREE.BoxGeometry(18, 2, 18), this.sandstoneMat);
-    mandapBase.position.set(0, 1, 0);
-    modheraGroup.add(mandapBase);
-
-    // 52 Carved Columns around the Sabha Mandap
-    for (let i = 0; i < 16; i++) {
-      const angle = (i / 16) * Math.PI * 2;
-      const r = 7.0;
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 6, 8), this.sandstoneMat);
-      col.position.set(Math.cos(angle) * r, 5, Math.sin(angle) * r);
-      modheraGroup.add(col);
-    }
-
-    // Pyramidical stepped roof
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(9, 7, 4), this.sandstoneMat);
-    roof.position.set(0, 11, 0);
-    roof.rotation.y = Math.PI / 4;
-    modheraGroup.add(roof);
-
-    // Golden Surya Dev Sun Crest on roof
-    const sunCrest = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.2, 16), this.goldMat);
-    sunCrest.position.set(0, 14.8, 0);
-    sunCrest.rotation.x = Math.PI / 2;
-    modheraGroup.add(sunCrest);
-
-    // Stepped Surya Kund (Water Reservoir in front)
-    const kund = new THREE.Mesh(new THREE.BoxGeometry(22, 1.5, 16), this.stoneMat);
-    kund.position.set(0, 0.5, 18);
-    const kundWater = new THREE.Mesh(new THREE.PlaneGeometry(18, 12), this.waterMat);
-    kundWater.rotation.x = -Math.PI / 2;
-    kundWater.position.set(0, 1.2, 18);
-    modheraGroup.add(kund, kundWater);
-
-    // Miniature step niches around Surya Kund
-    for (let k = -2; k <= 2; k++) {
-      const niche = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.8, 4), this.sandstoneMat);
-      niche.position.set(k * 4.5, 2.0, 10);
-      modheraGroup.add(niche);
-    }
-
-    // 3. Patan Patola Loom Workshop Pavilion
-    const patolaPavilion = new THREE.Group();
-    patolaPavilion.position.set(0, 0, 20);
-    const loomBase = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 8), this.woodMat);
-    loomBase.position.set(0, 0.25, 0);
-    const patolaRoof = new THREE.Mesh(new THREE.ConeGeometry(6, 3, 4), this.terracottaMat);
-    patolaRoof.position.set(0, 4.5, 0);
-    patolaRoof.rotation.y = Math.PI / 4;
-
-    // Colorful Patola silk banner
-    const silkBannerMat = new THREE.MeshStandardMaterial({ color: 0xd946ef, roughness: 0.5 });
-    const silkBanner = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 0.2), silkBannerMat);
-    silkBanner.position.set(0, 2.5, 0);
-
-    patolaPavilion.add(loomBase, patolaRoof, silkBanner);
-
-    complex.add(vavGroup, modheraGroup, patolaPavilion);
-    group.add(complex);
   }
 
   /**
