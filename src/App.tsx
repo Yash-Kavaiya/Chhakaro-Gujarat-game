@@ -842,13 +842,20 @@ export default function App() {
   };
 
   // "Rest till morning" — skip the day/night phase forward to the next 06:00. M3 is a plain
-  // skip; M4 ties it to dhaba stops. Does not touch the odometer or any freeze mode.
+  // skip; M4 ties it to dhaba stops. Does not touch the odometer.
   const handleRest = () => {
-    if (!worldRef.current) return;
+    const world = worldRef.current;
+    if (!world) return;
+    // A frozen clock ignores the phase offset (manualMode overrides rawProgress), so Rest
+    // would be a silent no-op under a lying "morning" toast. Resume the dynamic cycle first
+    // so Rest always wakes the player into a live morning.
+    if (timeOfDay?.isFrozen) {
+      world.setTimeFreezeMode('dynamic');
+    }
     const h = timeOfDay?.hour ?? 22;
     const m = timeOfDay?.minute ?? 0;
     const hoursUntilSix = (6 - (h + m / 60) + 24) % 24;
-    worldRef.current.advanceTimeOfDay(hoursUntilSix);
+    world.advanceTimeOfDay(hoursUntilSix);
     notify({ text: 'સવાર પડી — તાજામાજા થઈને ચાલો!', tone: 'reward' });
   };
 

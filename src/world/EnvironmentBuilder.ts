@@ -115,7 +115,7 @@ export class EnvironmentBuilder {
       this.buildZoneLandmark(loc);
     });
 
-    // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, streetlights
+    // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, petrol/garage stops
     this.buildRoadsideScenery(locations);
 
     // 8. Night infrastructure: lit city windows, highway street lamps, coastal aarti glow (all dark by day)

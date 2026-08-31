@@ -387,8 +387,8 @@ export const HUD: React.FC<HUDProps> = ({
                     {timeOfDay.freezeMode === 'night' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
                   </button>
 
-                  {/* Rest till morning — skip the night, jump to the next 06:00 */}
-                  {onRest && (
+                  {/* Rest till morning — only offered once it's actually getting dark */}
+                  {onRest && (timeOfDay.phase === 'sunset' || timeOfDay.phase === 'dusk' || timeOfDay.phase === 'night') && (
                     <button
                       id="time-opt-rest"
                       onClick={() => {
