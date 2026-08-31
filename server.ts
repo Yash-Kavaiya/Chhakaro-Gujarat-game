@@ -96,8 +96,6 @@ function normalizeGuideRequest(body: any) {
     nearbyLandmarkId,
     inGirZone,
     recentEvents,
-    // a currentLocation-shaped object the local fallback can branch on
-    fallbackLocation: legacyLoc || { id: zone.id, nameGujarati: zone.nameGujarati, region: zone.region, famousFood },
   };
 }
 
@@ -125,54 +123,85 @@ function describeKakaEvent(e: any): string {
   }
 }
 
-// Contextual fallback response generator for Kanji Kaka when model is under high load
-function generateSmartKakaFallback(
-  prompt: string = '',
-  currentLocation: any = {},
-  speed: number = 0,
-  weather: string = 'sunny'
-) {
-  const query = (prompt || '').toLowerCase();
-  const locName = currentLocation?.nameGujarati || 'ગુજરાતના રસ્તે';
-  const food = currentLocation?.famousFood || 'કાઠિયાવાડી ગાંઠિયા અને ગરમ ચા';
+// Traditional Kathiyawadi folk verses / proverbs (verifiable folklore, not invented).
+const KAKA_DUHAS = [
+  '"કાઠિયાવાડમાં કોક દી ભૂલો પડ ભગવાન,\nતો તારો કરું સત્કાર — સ્વર્ગ ભુલાવી દઉં શામળા!"\n— અસલ કાઠિયાવાડી મહેમાનગતિનો દુહો.',
+  '"જ્યાં જ્યાં વસે એક ગુજરાતી, ત્યાં ત્યાં સદાકાળ ગુજરાત."\n— કવિ અરદેશર ખબરદારની અમર પંક્તિ.',
+  '"પાણી પહેલાં પાળ બાંધવી."\n— જૂની કહેવત: મુસીબત આવે એ પહેલાં તૈયારી કરી લેવી. છકડામાં ડીઝલ પૂરું રાખજો, બાપા!',
+];
 
-  let reply = '';
-  let mood = 'cheerful';
+// Light chhakaro humour — no factual claims.
+const KAKA_JOKES = [
+  'છકડાને પૂછ્યું, "થાક્યો?" તો કહે, "ના બાપા, હજી ડીઝલ બાકી છે!"',
+  'છકડો ધીમો કેમ? — કારણ કે મંઝિલ ઉતાવળમાં નહીં, મોજમાં આવે!',
+  'છકડાવાળાની ઘડિયાળ હંમેશા સાચી — જ્યાં પહોંચે ત્યાં જ સાચો સમય!',
+];
 
-  if (query.includes('ઇતિહાસ') || query.includes('history') || query.includes('વાત')) {
-    if (currentLocation?.id === 'dwarka') {
-      reply = `અરે બાપા! આ તો આપણી દ્વારિકા નગરી! ભગવાન શ્રીકૃષ્ણ મથુરાથી અહીં આવ્યા ને સુવર્ણ દ્વારકા બનાવી. અહીં ૫૨ ગજની ધ્વજા દર્શનનું બહુ પુણ્ય મળે છે!`;
-    } else if (currentLocation?.id === 'somnath') {
-      reply = `હર હર મહાદેવ! સોમનાથ એ બાર જ્યોતિર્લિંગમાં સર્વપ્રથમ છે. ચંદ્રદેવે અહીં મહાદેવની તપસ્યા કરી હતી. બાણસ્તંભ અહીંથી દક્ષિણ ધ્રુવ સુધીનો સીધો સમુદ્ર માર્ગ બતાવે છે!`;
-    } else if (currentLocation?.id === 'gir') {
-      reply = `કાં ભાઈ! સાસણ ગીર એટલે આપણા એશિયાટિક સાવજનો અસલ દેશ! અહીં આપણો છકડો ૨૫ કિમીની લિમિટમાં ધીમે હંકારવાનો, જેથી વનરાજોને ખલેલ ન પહોંચે!`;
-    } else if (currentLocation?.id === 'junagadh') {
-      reply = `જૂનાગઢ એટલે ઐતિહાસિક ઉપરકોટ અને ૯,૯૯૯ પગથિયાંવાળો ગિરનાર! સંતો, શૂરવીરો અને ગરવા ગિરનારની ભૂમિમાં તમારું સ્વાગત છે બાપા!`;
-    } else if (currentLocation?.id === 'kutch') {
-      reply = `કચ્છ નહિ દેખા તો કુછ નહિ દેખા! શ્વેત રણમાં ચાંદની રાતે મીઠાની ચાદર હીરાની જેમ ચમકે છે. અહીં કચ્છી ભૂંગા અને રણોત્સવની રોનક જોવા જેવી હોય છે!`;
-    } else if (currentLocation?.id === 'statue_of_unity') {
-      reply = `આ છે આપણા લોખંડી પુરુષ સરદાર વલ્લભભાઈ પટેલનું ૧૮૨ મીટર ઊંચું સ્ટેચ્યુ ઓફ યુનિટી! ૫૬૨ રજવાડાંને એક કરનાર અખંડ ભારતના શિલ્પીને વંદન!`;
-    } else {
-      reply = `અરે વાહ! ${locName} નો ઇતિહાસ બહુ ગૌરવશાળી છે. આપણા ગુજરાતની ધરતી સંતો, દાતારો અને શૂરવીરોની ભૂમિ છે બાપા!`;
-    }
-    mood = 'wise';
-  } else if (query.includes('ખાવા') || query.includes('ફૂડ') || query.includes('વાનગી') || query.includes('food')) {
-    reply = `ખાવાના શોખીન લાગો છો! અત્યારે આપણે ${locName} માં છીએ, એટલે અહીં ${food} નો સ્વાદ લીધા વિના આગળ ન વધાય! સાથે એક કડક મસાલા ચા થઈ જાય તો દિવસ સુધરી જાય!`;
-    mood = 'hungry';
-  } else if (query.includes('દુહો') || query.includes('કહેવત') || query.includes('ગીત') || query.includes('શાયરી')) {
-    reply = `સાંભળો ત્યારે અસલ કાઠિયાવાડી રંગ:\n"કાઠિયાવાડમાં કોક દી ભુલો પડ ભગવાન,\nતો તારો કરું સત્કાર, સ્વર્ગ ભુલાવી દઉં શામળા!"\nજય ગરવી ગુજરાત!`;
-    mood = 'excited';
-  } else if (query.includes('રસ્તો') || query.includes('આગળ') || query.includes('road')) {
-    reply = `આગળનો હાઈવે મસ્ત પહોળો છે! બસ છકડાનું સ્ટીયરિંગ મજબૂત પકડી રાખજો અને હોર્ન વગાડતા રહેજો! છકડો તો હવા સાથે વાતો કરશે!`;
-    mood = 'cheerful';
-  } else {
-    reply = `રામ રામ બાપા! હું કાનજી કાકો તમારી સાથે જ છું. ${locName} ની મુસાફરીમાં મોજ કરો, છકડો મસ્ત ચાલે છે અને હવામાન પણ ખુશનુમા છે!`;
-    mood = 'cheerful';
+function pickStable(arr: string[], key: string): string {
+  let h = 0;
+  for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return arr[h % arr.length];
+}
+
+// Full-coverage local Kanji Kaka responder — used when there is no API key or every model
+// is under load. Grounded in the real per-location data (history / food / culture) and
+// mode-aware; no invented facts.
+function generateSmartKakaFallback(ctx: ReturnType<typeof normalizeGuideRequest>) {
+  const loc = GUJARAT_LOCATIONS.find((l) => l.id === ctx.zone.id);
+  const name = ctx.zone.nameGujarati || loc?.nameGujarati || 'ગુજરાત';
+  const food = loc?.famousFood || ctx.famousFood;
+  const q = (ctx.prompt || '').toLowerCase();
+  const mode = ctx.mode;
+
+  const wantJoke = /જોક|મજાક|હસાવ|રમૂજ|joke|funny/.test(q);
+  const wantDuha = mode === 'duha' || /દુહો|કહેવત|શાયરી|જોડકણું|લોકગીત|duha|proverb|kahevat/.test(q);
+  const wantDirections =
+    mode === 'directions' || /રસ્તો|આગળ|દિશા|કેટલે દૂર|કેટલું દૂર|road|route|direction|how far/.test(q);
+  const wantFood = mode === 'food' || /ખાવા|ખાણી|ખાણું|ફૂડ|વાનગી|નાસ્તો|સ્વાદ|food|eat|hungry/.test(q);
+  const wantHistory =
+    mode === 'story' || /ઇતિહાસ|ઈતિહાસ|history|વાર્તા|કહાની|પ્રસંગ|story/.test(q);
+
+  if (wantJoke) {
+    return { reply: `હેહે! ${pickStable(KAKA_JOKES, name)}`, kakaMood: 'cheerful', recommendedFood: food };
+  }
+  if (wantDuha) {
+    return { reply: `સાંભળો ત્યારે:\n${pickStable(KAKA_DUHAS, name)}`, kakaMood: 'nostalgic', recommendedFood: food };
+  }
+  if (wantDirections) {
+    const navLine = ctx.nav
+      ? `${ctx.nav.targetNameGujarati} આશરે ${(Number(ctx.nav.distanceM) / 1000).toFixed(1)} કિમી દૂર છે. `
+      : loc?.signboardText
+        ? `સાઇનબોર્ડ કહે છે: "${loc.signboardText}". `
+        : '';
+    return {
+      reply: `${navLine}આગળનો રસ્તો પહોળો છે — સ્ટીયરિંગ મજબૂત પકડો, હોર્ન વગાડતા રહો ને ડાહ્યા થઈને હંકારજો, બાપા!`,
+      kakaMood: 'cheerful',
+      recommendedFood: food,
+    };
+  }
+  if (wantFood) {
+    const desc = loc?.foodDescription ? ` ${loc.foodDescription}` : '';
+    return {
+      reply: `ખાવાના શોખીન લાગો છો! ${name} માં ${food} ખાધા વગર આગળ ન વધાય.${desc} સાથે કડક મસાલા ચા તો ખરી જ!`,
+      kakaMood: 'hungry',
+      recommendedFood: food,
+    };
+  }
+  if (wantHistory && loc) {
+    return {
+      reply: `${loc.history} ${loc.passportStory}`.trim(),
+      kakaMood: 'wise',
+      recommendedFood: food,
+    };
   }
 
+  // Mode-aware default: greet + one grounded cultural note for this exact zone.
+  const note = loc?.culturalHighlights?.[0] || loc?.landmarks?.[0];
   return {
-    reply,
-    kakaMood: mood,
+    reply: `રામ રામ બાપા! કાનજી કાકો તમારી સાથે જ છે. અત્યારે આપણે ${name} માં છીએ${
+      note ? ` — ${note} જોવા જેવું છે` : ''
+    }. છકડો મસ્ત ચાલે છે, મોજ કરો!`,
+    kakaMood: 'cheerful',
     recommendedFood: food,
   };
 }
@@ -186,8 +215,7 @@ app.get('/api/health', (req, res) => {
 // Accepts the full M2 KakaContext body (or the legacy body — both normalized below).
 app.post('/api/gemini/guide', async (req, res) => {
   const ctx = normalizeGuideRequest(req.body);
-  const localFallback = () =>
-    generateSmartKakaFallback(ctx.prompt, ctx.fallbackLocation, ctx.speedKmh, ctx.weather);
+  const localFallback = () => generateSmartKakaFallback(ctx);
 
   try {
     const ai = getAI();
