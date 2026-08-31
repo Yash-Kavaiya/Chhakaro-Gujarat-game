@@ -91,4 +91,19 @@ export const GUJARATI_QUIZZES: CulturalQuiz[] = [
     factExplanationGujarati: 'સરદાર વલ્લભભાઈ પટેલની પ્રતિમાની ૧૮૨ મીટર ઊંચાઈ ગુજરાત વિધાનસભાની ૧૮૨ ધારાસભા બેઠકોનું સન્માનપૂર્વક પ્રતિનિધિત્વ કરે છે.',
     coinReward: 80,
   },
+  {
+    id: 'quiz_ahmedabad_airport',
+    locationId: 'ahmedabad_airport',
+    locationNameGujarati: 'અમદાવાદ એરપોર્ટ (SVPIA)',
+    questionGujarati: 'અમદાવાદ આંતરરાષ્ટ્રીય વિમાનમથકનું નામ ભારતના કયા મહાન સ્વાતંત્ર્ય સેનાની અને લોહપુરુષના નામ પરથી રાખવામાં આવ્યું છે?',
+    optionsGujarati: [
+      'સરદાર વલ્લભભાઈ પટેલ',
+      'મહાત્મા ગાંધી',
+      'મોરારજી દેસાઈ',
+      'રવિશંકર મહારાજ'
+    ],
+    correctAnswerIdx: 0,
+    factExplanationGujarati: 'અમદાવાદ આંતરરાષ્ટ્રીય વિમાનમથક (SVPIA) અખંડ ભારતના શિલ્પી લોહપુરુષ સરદાર વલ્લભભાઈ પટેલના સન્માનમાં સમર્પિત છે, જે ગુજરાતનું સૌથી વ્યસ્ત આંતરરાષ્ટ્રીય એરપોર્ટ છે.',
+    coinReward: 90,
+  },
 ];

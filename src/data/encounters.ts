@@ -105,4 +105,17 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     kakaDialogue: 'જય દ્વારકાધીશ! ભગવાનનો પ્રસાદી માવા પેંડો આરોગીને આગળની યાત્રા શરૂ કરો બાપા!',
     worldPosition: { x: 410, z: 80 },
   },
+  {
+    id: 'enc_airport_circle',
+    type: 'tea_stall',
+    nameGujarati: '✈️ એરપોર્ટ સર્કલ ટી & મસ્કાબન લાઉન્જ',
+    nameEnglish: 'Airport Circle Tea & Maska Bun Point',
+    taglineGujarati: 'વિમાન ટેકઓફ જોતાં જોતાં કડક ઈલાયચી ચા',
+    foodId: 'airport_masala_chai',
+    foodNameGujarati: 'એરપોર્ટ લાઉન્જ મસાલા ચા & બટર મસ્કા બન',
+    foodNameEnglish: 'Airport Lounge Masala Chai & Bun Maska',
+    emoji: '✈️',
+    kakaDialogue: 'અરે વાહ ભાઈ વાહ! એરપોર્ટના રસ્તે વિમાન ઊડતાં જોવાની ને ગરમ મસાલા ચા પીવાની કેવી મોજ પડે છે!',
+    worldPosition: { x: -270, z: -40 },
+  },
 ];

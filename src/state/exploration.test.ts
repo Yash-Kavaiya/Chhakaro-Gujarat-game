@@ -3,12 +3,21 @@ import { regionTally, passportProgress, nearestUnvisited } from './exploration';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 
 describe('passportProgress', () => {
-  it('is 0/16 · 0% for no visits', () => {
-    expect(passportProgress(GUJARAT_LOCATIONS, [])).toEqual({ visited: 0, total: 16, pct: 0 });
+  it('is 0/N · 0% for no visits', () => {
+    expect(passportProgress(GUJARAT_LOCATIONS, [])).toEqual({
+      visited: 0,
+      total: GUJARAT_LOCATIONS.length,
+      pct: 0,
+    });
   });
   it('rounds pct', () => {
     const three = GUJARAT_LOCATIONS.slice(0, 3).map((l) => l.id);
-    expect(passportProgress(GUJARAT_LOCATIONS, three)).toEqual({ visited: 3, total: 16, pct: 19 });
+    const expectedPct = Math.round((3 / GUJARAT_LOCATIONS.length) * 100);
+    expect(passportProgress(GUJARAT_LOCATIONS, three)).toEqual({
+      visited: 3,
+      total: GUJARAT_LOCATIONS.length,
+      pct: expectedPct,
+    });
   });
   it('ignores ids not in the location list', () => {
     expect(passportProgress(GUJARAT_LOCATIONS, ['not_a_place']).visited).toBe(0);

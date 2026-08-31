@@ -42,6 +42,16 @@ export class EnvironmentBuilder {
   public animatableWindmills: THREE.Group[] = [];
   public animatableSmokePuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
   public animatableSteamPuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
+  public animatableRadars: THREE.Group[] = [];
+  public animatableAirplanes: {
+    group: THREE.Group;
+    speed: number;
+    radius: number;
+    baseAlt: number;
+    angle: number;
+    strobeTimer: number;
+    strobeLights: THREE.Mesh[];
+  }[] = [];
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -539,6 +549,9 @@ export class EnvironmentBuilder {
         break;
       case 'dandi':
         this.buildDandiSaltMemorial(landmarkGroup);
+        break;
+      case 'ahmedabad_airport':
+        this.buildAhmedabadAirport(landmarkGroup);
         break;
       case 'rajkot':
       default:
@@ -1624,6 +1637,753 @@ export class EnvironmentBuilder {
   }
 
   /**
+   * Zone: Sardar Vallabhbhai Patel International Airport (SVPIA), Ahmedabad
+   * Features: Modern international terminal, curved wave roof canopy, active runway 23/05,
+   * 36m ATC control tower with animated rotating radar, telescopic aerobridges,
+   * commercial twin-jet airliners in fictional Gujarati liveries, ground support equipment,
+   * Sardar Patel memorial entry plaza, and animated circling airborne flight.
+   */
+  private buildAhmedabadAirport(group: THREE.Group) {
+    const airportGroup = new THREE.Group();
+
+    // 1. Airport Apron & Tarmac Ground Base (220m x 220m dark asphalt)
+    const apronMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.86 });
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), apronMat);
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.set(0, 0.038, -30);
+    apron.receiveShadow = true;
+    airportGroup.add(apron);
+
+    // 2. Active Main Runway 23/05 (320m x 38m)
+    this.buildAirportRunway(airportGroup);
+
+    // 3. Modern International Passenger Terminal Complex (T1/T2)
+    this.buildAirportTerminal(airportGroup);
+
+    // 4. Iconic Air Traffic Control (ATC) Tower with Animated Radar
+    this.buildAirportATCTower(airportGroup);
+
+    // 5. Commercial Airliners (Fictional Liveries: Garvi Gujarat Airways & Air Khodiyar)
+    this.buildAirportAirliners(airportGroup);
+
+    // 6. Landside Grand Sardar Patel Entrance Plaza, Viaduct Flyover & Fountains
+    this.buildAirportLandsidePlaza(airportGroup);
+
+    // 7. Animated Sky-Circling Airborne Aircraft (Flight GJ-202)
+    this.buildAirborneAircraft(airportGroup);
+
+    group.add(airportGroup);
+  }
+
+  /**
+   * Build Active Runway 23/05 with threshold piano keys, centerline stripes, touchdown markings & edge lights
+   */
+  private buildAirportRunway(parent: THREE.Group) {
+    const runwayGroup = new THREE.Group();
+    runwayGroup.position.set(0, 0, -110);
+
+    const rwLength = 320;
+    const rwWidth = 36;
+
+    // Dark asphalt runway surface
+    const rwMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+    const runwaySurface = new THREE.Mesh(new THREE.PlaneGeometry(rwLength, rwWidth), rwMat);
+    runwaySurface.rotation.x = -Math.PI / 2;
+    runwaySurface.position.y = 0.042;
+    runwaySurface.receiveShadow = true;
+    runwayGroup.add(runwaySurface);
+
+    // Runway Yellow Shoulder Strips
+    const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.95 });
+    [-rwWidth / 2 - 2, rwWidth / 2 + 2].forEach((sy) => {
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(rwLength, 4), shoulderMat);
+      sh.rotation.x = -Math.PI / 2;
+      sh.position.set(0, 0.040, sy);
+      runwayGroup.add(sh);
+    });
+
+    // White Runway Threshold Piano Keys (8 bars each end)
+    [-rwLength / 2 + 15, rwLength / 2 - 15].forEach((endX) => {
+      for (let k = -7; k <= 7; k += 2) {
+        const key = new THREE.Mesh(new THREE.PlaneGeometry(12, 1.4), this.whiteLineMat);
+        key.rotation.x = -Math.PI / 2;
+        key.position.set(endX, 0.046, k * 1.8);
+        runwayGroup.add(key);
+      }
+    });
+
+    // Runway Centerline Dashes
+    const dashCount = Math.floor(rwLength / 18);
+    for (let d = 0; d < dashCount; d++) {
+      const dx = -rwLength / 2 + 28 + d * 18;
+      if (dx < rwLength / 2 - 28) {
+        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.2), this.whiteLineMat);
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(dx, 0.046, 0);
+        runwayGroup.add(stripe);
+      }
+    }
+
+    // Touchdown Zone Aiming Point Markings (Broad White Rectangles)
+    [-rwLength / 2 + 55, rwLength / 2 - 55].forEach((tx) => {
+      [-6, 6].forEach((tz) => {
+        const aim = new THREE.Mesh(new THREE.PlaneGeometry(24, 3.2), this.whiteLineMat);
+        aim.rotation.x = -Math.PI / 2;
+        aim.position.set(tx, 0.046, tz);
+        runwayGroup.add(aim);
+      });
+    });
+
+    // Runway Designation Heading Text Boards ("23" and "05")
+    this.createBoard(runwayGroup, '23', -rwLength / 2 + 26, 0.2, 0, 4, 3);
+    this.createBoard(runwayGroup, '05', rwLength / 2 - 26, 0.2, 0, 4, 3);
+
+    // Elevated Runway Edge Lights (Alternating White, Green Threshold, Red End)
+    const lightStep = 24;
+    const count = Math.floor(rwLength / lightStep);
+    const edgeOffset = rwWidth / 2 + 0.8;
+
+    for (let i = 0; i <= count; i++) {
+      const lx = -rwLength / 2 + i * lightStep;
+      [-edgeOffset, edgeOffset].forEach((lz) => {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.45), this.steelMat);
+        post.position.set(lx, 0.22, lz);
+
+        const isThreshold = i === 0 || i === count;
+        const bulbColor = isThreshold ? 0x22c55e : 0xf8fafc;
+        const bulbMat = new THREE.MeshBasicMaterial({ color: bulbColor });
+        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), bulbMat);
+        bulb.position.set(lx, 0.45, lz);
+
+        runwayGroup.add(post, bulb);
+      });
+    }
+
+    // Taxiway connecting Runway to Terminal Apron (Yellow center guide line)
+    const taxiway = new THREE.Mesh(new THREE.PlaneGeometry(28, 65), rwMat);
+    taxiway.rotation.x = -Math.PI / 2;
+    taxiway.position.set(-40, 0.041, 35);
+    runwayGroup.add(taxiway);
+
+    const taxiLine = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 65), this.roadMarkingMat);
+    taxiLine.rotation.x = -Math.PI / 2;
+    taxiLine.position.set(-40, 0.046, 35);
+    runwayGroup.add(taxiLine);
+
+    // Illuminated Airport Windsock
+    const sockMast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 7), this.steelMat);
+    sockMast.position.set(rwLength / 2 - 35, 3.5, 26);
+    const sockCone = new THREE.Mesh(new THREE.ConeGeometry(0.7, 3.2, 8), this.brightRedMat);
+    sockCone.rotation.z = Math.PI / 2;
+    sockCone.position.set(rwLength / 2 - 33, 6.8, 26);
+    runwayGroup.add(sockMast, sockCone);
+
+    parent.add(runwayGroup);
+  }
+
+  /**
+   * Build Grand Modern Passenger Terminal with Wave-Form Roof, Glass Curtain Walls,
+   * Departures Flyover Viaduct, and Telescopic Boarding Aerobridges
+   */
+  private buildAirportTerminal(parent: THREE.Group) {
+    const termGroup = new THREE.Group();
+    termGroup.position.set(0, 0, -25);
+
+    // 1. Main Terminal Building Body (80m x 28m x 14m)
+    const termBody = new THREE.Mesh(new THREE.BoxGeometry(80, 12, 26), this.stoneMat);
+    termBody.position.set(0, 6, 0);
+    termBody.castShadow = true;
+    termGroup.add(termBody);
+
+    // 2. High-Tech Glass Curtain Walls (Front Airside & Back Landside)
+    const glassAirside = new THREE.Mesh(new THREE.PlaneGeometry(76, 11), this.glassMat);
+    glassAirside.position.set(0, 6, -13.1);
+    glassAirside.rotation.y = Math.PI;
+
+    const glassLandside = new THREE.Mesh(new THREE.PlaneGeometry(76, 11), this.glassMat);
+    glassLandside.position.set(0, 6, 13.1);
+
+    termGroup.add(glassAirside, glassLandside);
+
+    // 3. Iconic Wave-Form Curved Canopy Roof (White/Steel architectural wings)
+    const roofCurve = new THREE.Mesh(new THREE.BoxGeometry(88, 1.4, 34), this.steelMat);
+    roofCurve.position.set(0, 12.8, 0);
+    roofCurve.rotation.x = -0.04;
+    termGroup.add(roofCurve);
+
+    // Secondary Overhanging Front Canopy Wing
+    const canopyFront = new THREE.Mesh(new THREE.BoxGeometry(84, 0.8, 8), this.steelMat);
+    canopyFront.position.set(0, 13.6, 18);
+    canopyFront.rotation.x = 0.08;
+    termGroup.add(canopyFront);
+
+    // 4. Departures Viaduct Flyover Roadway Ramp (Elevated drop-off on first floor)
+    const rampMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
+    const flyover = new THREE.Mesh(new THREE.BoxGeometry(76, 0.8, 10), rampMat);
+    flyover.position.set(0, 5.5, 19);
+    termGroup.add(flyover);
+
+    // Flyover Stainless Steel Guardrails
+    const railMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8 });
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(76, 1.0, 0.2), railMat);
+    rail.position.set(0, 6.4, 23.9);
+    termGroup.add(rail);
+
+    // Viaduct Concrete Support Pillars
+    [-30, -15, 0, 15, 30].forEach((px) => {
+      const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 5.5, 8), this.stoneMat);
+      pier.position.set(px, 2.75, 19);
+      termGroup.add(pier);
+    });
+
+    // 5. Directional Highway Overhead Gantries on Departures/Arrivals Levels
+    this.createBoard(termGroup, '✈️ DEPARTURES (પ્રસ્થાન) ↑ T1 / T2', -18, 9.5, 23.5, 16, 1.6);
+    this.createBoard(termGroup, '🛬 ARRIVALS (આગમન) ↓ GROUND LEVEL', 18, 9.5, 23.5, 16, 1.6);
+
+    // 6. Illuminated Main Airport Facade Signboard (Gujarati & English)
+    this.createBoard(termGroup, '✈️ સરદાર વલ્લભભાઈ પટેલ આંતરરાષ્ટ્રીય વિમાનમથક', 0, 15.0, 14.0, 36, 2.2);
+
+    // 7. Telescopic Passenger Boarding Aerobridges (Gate 1 & Gate 2 on airside)
+    [-22, 22].forEach((gx, idx) => {
+      const gatePier = new THREE.Group();
+      gatePier.position.set(gx, 0, -13);
+
+      // Gate Fixed Rotunda
+      const rotunda = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, 4.5, 12), this.steelMat);
+      rotunda.position.set(0, 6.5, 0);
+
+      // Telescopic Airbridge Tube (angled out to plane door)
+      const bridgeTube = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.0, 16), this.steelMat);
+      bridgeTube.position.set(idx === 0 ? -4 : 4, 6.2, -8);
+      bridgeTube.rotation.y = idx === 0 ? 0.35 : -0.35;
+
+      // Airbridge Glass Strip Window
+      const bridgeGlass = new THREE.Mesh(new THREE.PlaneGeometry(14, 1.4), this.glassMat);
+      bridgeGlass.position.set(idx === 0 ? -4.1 : 4.1, 6.4, -8);
+      bridgeGlass.rotation.y = idx === 0 ? 0.35 + Math.PI / 2 : -0.35 - Math.PI / 2;
+
+      // Adjustable Wheel Bogie Support
+      const bogieLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 4.5), this.steelMat);
+      bogieLeg.position.set(idx === 0 ? -7 : 7, 2.25, -14);
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
+      const bogieWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 12), tireMat);
+      bogieWheel.rotation.z = Math.PI / 2;
+      bogieWheel.position.set(idx === 0 ? -7 : 7, 0.6, -14);
+
+      gatePier.add(rotunda, bridgeTube, bridgeGlass, bogieLeg, bogieWheel);
+
+      // Gate Number LED Display
+      this.createBoard(gatePier, `GATE ${idx + 1}`, 0, 9.2, 1.0, 5, 1.2);
+
+      termGroup.add(gatePier);
+    });
+
+    parent.add(termGroup);
+  }
+
+  /**
+   * Build Iconic Air Traffic Control (ATC) Tower (36m tall) with 360-degree glass control cab,
+   * animated rotating radar scanner, and aviation hazard beacon.
+   */
+  private buildAirportATCTower(parent: THREE.Group) {
+    const atcGroup = new THREE.Group();
+    atcGroup.position.set(58, 0, -45);
+
+    // 1. Concrete Base & Operations Annex (16m x 14m x 5m)
+    const baseBuilding = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 14), this.stoneMat);
+    baseBuilding.position.set(0, 2.5, 0);
+    atcGroup.add(baseBuilding);
+
+    // 2. Tower Shaft (30m tall octagonal concrete column)
+    const towerShaft = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.4, 28, 8), this.stoneMat);
+    towerShaft.position.set(0, 19, 0);
+    towerShaft.castShadow = true;
+    atcGroup.add(towerShaft);
+
+    // Vertical Architectural Ribs along Tower
+    for (let r = 0; r < 4; r++) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.4, 26, 6.2), this.steelMat);
+      rib.position.set(0, 18, 0);
+      rib.rotation.y = (r * Math.PI) / 4;
+      atcGroup.add(rib);
+    }
+
+    // 3. Flared Upper Cantilever Platform & Visual Control Room Cab
+    const cabFloor = new THREE.Mesh(new THREE.CylinderGeometry(5.8, 3.0, 2.5, 16), this.steelMat);
+    cabFloor.position.set(0, 33.5, 0);
+    atcGroup.add(cabFloor);
+
+    // 360-degree Slanted Tinted Glass Windows
+    const cabGlass = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.0, 3.2, 16, 1, true), this.glassMat);
+    cabGlass.position.set(0, 36.0, 0);
+    atcGroup.add(cabGlass);
+
+    // Overhanging Roof Sun-Shade
+    const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 5.8, 0.8, 16), this.steelMat);
+    cabRoof.position.set(0, 38.0, 0);
+    atcGroup.add(cabRoof);
+
+    // 4. Rooftop Communications Spire & Animated Primary Surveillance Radar
+    const antennaSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 6), this.steelMat);
+    antennaSpire.position.set(0, 41.5, 0);
+    atcGroup.add(antennaSpire);
+
+    // Red Flashing Obstruction Hazard Beacon on top
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), this.brightRedMat);
+    beacon.position.set(0, 44.5, 0);
+    atcGroup.add(beacon);
+
+    // Animated Rotating Radar Dish Antenna
+    const radarAssembly = new THREE.Group();
+    radarAssembly.position.set(2.4, 38.8, 0);
+
+    const radarMast = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.4), this.steelMat);
+    radarMast.position.y = 0.7;
+    const radarDish = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.7, 0.15), this.steelMat);
+    radarDish.position.y = 1.4;
+    const radarFeed = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.8), this.brightRedMat);
+    radarFeed.position.set(0, 1.4, 0.4);
+    radarFeed.rotation.x = Math.PI / 2;
+
+    radarAssembly.add(radarMast, radarDish, radarFeed);
+    atcGroup.add(radarAssembly);
+    this.animatableRadars.push(radarAssembly);
+
+    // ATC Tower Name Sign
+    this.createBoard(atcGroup, '🏢 SVPIA AIR TRAFFIC CONTROL TOWER', 0, 5.8, 7.1, 14, 1.4);
+
+    parent.add(atcGroup);
+  }
+
+  /**
+   * Build Commercial Airliners in Authentic Fictional Gujarati Liveries
+   */
+  private buildAirportAirliners(parent: THREE.Group) {
+    // Airliner 1: "ગરવી ગુજરાત એરવેઝ (Garvi Gujarat Airways)" - Docked at Gate 1
+    const airliner1 = this.createAirlinerModel({
+      liveryName: 'Garvi Gujarat Airways',
+      airlineNameGujarati: 'ગરવી ગુજરાત એરવેઝ',
+      primaryColor: 0xffffff,
+      stripeColor: 0xf97316, // Saffron orange
+      tailColor: 0x0284c7, // Peacock cyan blue
+      flightNumber: 'GJ-101 (London / Heathrow)',
+    });
+    airliner1.position.set(-28, 0, -42);
+    airliner1.rotation.y = 0.25;
+    parent.add(airliner1);
+
+    // Ground Service Equipment (GSE) parked next to Airliner 1
+    this.buildGroundSupportEquipment(parent, -28, -42);
+
+    // Airliner 2: "ખોડિયાર એર (Air Khodiyar Express)" - Parked at Remote Apron Stand 3
+    const airliner2 = this.createAirlinerModel({
+      liveryName: 'Air Khodiyar Express',
+      airlineNameGujarati: 'ખોડિયાર એક્સપ્રેસ',
+      primaryColor: 0xf8fafc,
+      stripeColor: 0xdc2626, // Red
+      tailColor: 0xfacc15, // Golden yellow
+      flightNumber: 'KH-505 (Dubai International)',
+    });
+    airliner2.position.set(24, 0, -68);
+    airliner2.rotation.y = -0.3;
+    parent.add(airliner2);
+
+    // Passenger Mobile Stair Truck at Airliner 2 forward door
+    this.buildPassengerStairTruck(parent, 20, -65);
+
+    // Aviation Jet Fuel Bowser Tanker Truck
+    this.buildFuelTankerTruck(parent, 34, -72);
+  }
+
+  /**
+   * Helper to construct detailed 3D twin-jet commercial airliner model
+   */
+  private createAirlinerModel(opts: {
+    liveryName: string;
+    airlineNameGujarati: string;
+    primaryColor: number;
+    stripeColor: number;
+    tailColor: number;
+    flightNumber: string;
+  }): THREE.Group {
+    const plane = new THREE.Group();
+
+    const fuseMat = new THREE.MeshStandardMaterial({ color: opts.primaryColor, roughness: 0.35, metalness: 0.1 });
+    const stripeMat = new THREE.MeshStandardMaterial({ color: opts.stripeColor, roughness: 0.4 });
+    const tailMat = new THREE.MeshStandardMaterial({ color: opts.tailColor, roughness: 0.35 });
+    const cockpitMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.9 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
+
+    // 1. Fuselage Main Body (Length 34m, Diameter 3.4m)
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 26, 16), fuseMat);
+    fuselage.rotation.x = Math.PI / 2;
+    fuselage.position.set(0, 3.8, 0);
+    plane.add(fuselage);
+
+    // Aerodynamic Nose Cone
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.7, 5.0, 16), fuseMat);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.set(0, 3.8, 15.5);
+    plane.add(nose);
+
+    // Cockpit Windshield Windows
+    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 1.4), cockpitMat);
+    cockpit.position.set(0, 4.6, 14.2);
+    cockpit.rotation.x = 0.25;
+    plane.add(cockpit);
+
+    // Tapered Tail Cone
+    const tailCone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 6.5, 16), fuseMat);
+    tailCone.rotation.x = Math.PI / 2;
+    tailCone.position.set(0, 4.1, -16.2);
+    plane.add(tailCone);
+
+    // Decorative Cheatline Stripe along Fuselage
+    const cheatline = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 24, 16, 1, true), stripeMat);
+    cheatline.rotation.x = Math.PI / 2;
+    cheatline.position.set(0, 3.8, 1);
+    plane.add(cheatline);
+
+    // 2. Swept-Back Main Wings (Wingspan 32m)
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.45 });
+    const wingSpan = 30;
+    const leftWing = new THREE.Mesh(new THREE.BoxGeometry(wingSpan / 2, 0.35, 4.5), wingMat);
+    leftWing.position.set(-8.2, 3.2, -1.5);
+    leftWing.rotation.set(-0.06, 0.22, 0.08); // Anhedral + sweep
+
+    const rightWing = new THREE.Mesh(new THREE.BoxGeometry(wingSpan / 2, 0.35, 4.5), wingMat);
+    rightWing.position.set(8.2, 3.2, -1.5);
+    rightWing.rotation.set(-0.06, -0.22, -0.08);
+
+    // Upturned Blended Winglets on Tips
+    const leftWinglet = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.8, 1.2), stripeMat);
+    leftWinglet.position.set(-15.8, 4.2, -4.2);
+    leftWinglet.rotation.y = 0.22;
+
+    const rightWinglet = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.8, 1.2), stripeMat);
+    rightWinglet.position.set(15.8, 4.2, -4.2);
+    rightWinglet.rotation.y = -0.22;
+
+    plane.add(leftWing, rightWing, leftWinglet, rightWinglet);
+
+    // 3. Twin High-Bypass Turbofan Jet Engines under wings
+    [-5.5, 5.5].forEach((ex) => {
+      const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.9, 4.2, 16), this.steelMat);
+      nacelle.rotation.x = Math.PI / 2;
+      nacelle.position.set(ex, 2.2, 1.2);
+
+      // Engine Intake Spinner Cone
+      const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 12), cockpitMat);
+      spinner.rotation.x = -Math.PI / 2;
+      spinner.position.set(ex, 2.2, 3.4);
+
+      // Engine Pylon Mount
+      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.0, 2.0), this.steelMat);
+      pylon.position.set(ex, 3.0, 0.8);
+
+      plane.add(nacelle, spinner, pylon);
+    });
+
+    // 4. Vertical Stabilizer Tail Fin with Airline Emblem
+    const verticalFin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 6.2, 4.8), tailMat);
+    verticalFin.position.set(0, 7.8, -15.5);
+    verticalFin.rotation.x = -0.38;
+
+    // Horizontal Tail Stabilizers
+    const leftTail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.25, 2.2), wingMat);
+    leftTail.position.set(-3.0, 5.0, -17.0);
+    leftTail.rotation.y = 0.25;
+
+    const rightTail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.25, 2.2), wingMat);
+    rightTail.position.set(3.0, 5.0, -17.0);
+    rightTail.rotation.y = -0.25;
+
+    plane.add(verticalFin, leftTail, rightTail);
+
+    // 5. Landing Gear (Nose gear + Main gear with dual tires)
+    // Nose Gear
+    const noseStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2), this.steelMat);
+    noseStrut.position.set(0, 1.1, 12.0);
+    const noseTireL = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 12), tireMat);
+    noseTireL.rotation.z = Math.PI / 2;
+    noseTireL.position.set(-0.25, 0.4, 12.0);
+    const noseTireR = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 12), tireMat);
+    noseTireR.rotation.z = Math.PI / 2;
+    noseTireR.position.set(0.25, 0.4, 12.0);
+    plane.add(noseStrut, noseTireL, noseTireR);
+
+    // Main Gear
+    [-3.2, 3.2].forEach((mx) => {
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 2.2), this.steelMat);
+      strut.position.set(mx, 1.1, -1.0);
+      const tireL = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.25, 12), tireMat);
+      tireL.rotation.z = Math.PI / 2;
+      tireL.position.set(mx - 0.35, 0.55, -1.0);
+      const tireR = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.25, 12), tireMat);
+      tireR.rotation.z = Math.PI / 2;
+      tireR.position.set(mx + 0.35, 0.55, -1.0);
+      plane.add(strut, tireL, tireR);
+    });
+
+    // Flight Info Tag Board
+    this.createBoard(plane, `${opts.airlineNameGujarati} | ${opts.flightNumber}`, 0, 5.8, 5.0, 14, 1.2);
+
+    return plane;
+  }
+
+  /**
+   * Build Ground Support Equipment (GSE): Tug, GPU Cart, Luggage Container Train
+   */
+  private buildGroundSupportEquipment(parent: THREE.Group, px: number, pz: number) {
+    const gseGroup = new THREE.Group();
+    gseGroup.position.set(px, 0, pz);
+
+    const tugMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
+
+    // 1. Aircraft Pushback Tug Tractor
+    const tug = new THREE.Group();
+    tug.position.set(0, 0, 18);
+
+    const tugBody = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 5.2), tugMat);
+    tugBody.position.y = 0.8;
+    const tugCab = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.1, 1.8), this.glassMat);
+    tugCab.position.set(0, 1.8, 1.2);
+
+    [-1.8, 1.8].forEach((wx) => {
+      [-1.6, 1.6].forEach((wz) => {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.3, 12), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.5, wz);
+        tug.add(wheel);
+      });
+    });
+
+    tug.add(tugBody, tugCab);
+    gseGroup.add(tug);
+
+    // 2. Baggage Tow Tractor with 3 Luggage Container Carts (AKE Containers)
+    const bagTractor = new THREE.Group();
+    bagTractor.position.set(-12, 0, 4);
+
+    const tractorBody = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 2.8), tugMat);
+    tractorBody.position.y = 0.65;
+    bagTractor.add(tractorBody);
+
+    // 3 Luggage Carts
+    for (let c = 1; c <= 3; c++) {
+      const cart = new THREE.Group();
+      cart.position.set(0, 0, -c * 3.4);
+
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.2, 2.8), this.steelMat);
+      bed.position.y = 0.35;
+
+      const container = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 2.4), this.steelMat);
+      container.position.y = 1.15;
+
+      cart.add(bed, container);
+      bagTractor.add(cart);
+    }
+    gseGroup.add(bagTractor);
+
+    parent.add(gseGroup);
+  }
+
+  /**
+   * Build Mobile Passenger Boarding Stair Truck
+   */
+  private buildPassengerStairTruck(parent: THREE.Group, px: number, pz: number) {
+    const stairTruck = new THREE.Group();
+    stairTruck.position.set(px, 0, pz);
+
+    const truckMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.5 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
+
+    // Chassis Truck
+    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.0, 6.5), truckMat);
+    chassis.position.y = 0.7;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.8), this.glassMat);
+    cab.position.set(0, 1.8, 2.2);
+
+    [-1.3, 1.3].forEach((wx) => {
+      [-2.0, 0, 2.0].forEach((wz) => {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.25, 12), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.45, wz);
+        stairTruck.add(wheel);
+      });
+    });
+
+    // Angled Stairway Ramp reaching up to plane door
+    const stairs = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 7.5), this.steelMat);
+    stairs.position.set(0, 2.6, -1.0);
+    stairs.rotation.x = -0.45;
+
+    const handrailL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 7.5), this.steelMat);
+    handrailL.position.set(-0.8, 3.0, -1.0);
+    handrailL.rotation.x = -0.45;
+
+    const handrailR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 7.5), this.steelMat);
+    handrailR.position.set(0.8, 3.0, -1.0);
+    handrailR.rotation.x = -0.45;
+
+    stairTruck.add(chassis, cab, stairs, handrailL, handrailR);
+    parent.add(stairTruck);
+  }
+
+  /**
+   * Build Aviation Jet Fuel Tanker Truck
+   */
+  private buildFuelTankerTruck(parent: THREE.Group, px: number, pz: number) {
+    const tanker = new THREE.Group();
+    tanker.position.set(px, 0, pz);
+
+    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
+
+    // Truck Cab
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 2.2), this.brightRedMat);
+    cab.position.set(0, 1.4, 3.6);
+
+    // Cylindrical Jet-A1 Fuel Tank
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 6.8, 16), whiteMat);
+    tank.rotation.x = Math.PI / 2;
+    tank.position.set(0, 1.8, -1.2);
+
+    [-1.2, 1.2].forEach((wx) => {
+      [-3.2, -1.2, 1.0, 3.6].forEach((wz) => {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.25, 12), tireMat);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.48, wz);
+        tanker.add(wheel);
+      });
+    });
+
+    tanker.add(cab, tank);
+    this.createBoard(tanker, '⛽ AVIATION JET-A1 FUEL', 0, 2.8, -1.2, 6.5, 1.0);
+
+    parent.add(tanker);
+  }
+
+  /**
+   * Build Landside Sardar Patel Plaza, Roundabout, Fountains, Palms, Parking & High-Mast Lighting
+   */
+  private buildAirportLandsidePlaza(parent: THREE.Group) {
+    const plaza = new THREE.Group();
+    plaza.position.set(0, 0, 28);
+
+    // 1. Central Monumental Roundabout with Bronze Statue of Sardar Vallabhbhai Patel
+    const fountainBase = new THREE.Mesh(new THREE.CylinderGeometry(11, 12, 0.8, 24), this.stoneMat);
+    fountainBase.position.set(0, 0.4, 0);
+
+    const poolWater = new THREE.Mesh(new THREE.CircleGeometry(10.5, 24), this.waterMat);
+    poolWater.rotation.x = -Math.PI / 2;
+    poolWater.position.set(0, 0.85, 0);
+
+    // Center Pedestal
+    const statuePedestal = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.2, 3.4), this.sandstoneMat);
+    statuePedestal.position.set(0, 2.4, 0);
+
+    // Bronze Statue of Sardar Vallabhbhai Patel (Dhoti, Kurta, Shawl)
+    const statueBody = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 4.2, 10), this.bronzeMat);
+    statueBody.position.set(0, 6.1, 0);
+
+    const statueHead = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 10), this.bronzeMat);
+    statueHead.position.set(0, 8.6, 0);
+
+    const statueShawl = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.3, 8, 16), this.bronzeMat);
+    statueShawl.rotation.x = Math.PI / 2;
+    statueShawl.position.set(0, 7.2, 0);
+
+    plaza.add(fountainBase, poolWater, statuePedestal, statueBody, statueHead, statueShawl);
+
+    // Statue Plaque Signboard
+    this.createBoard(plaza, 'લોહપુરુષ સરદાર વલ્લભભાઈ પટેલ સ્મારક', 0, 4.2, 1.8, 9, 1.2);
+
+    // 2. Symmetrical Royal Palm Trees along Entrance Boulevard
+    for (let p = -3; p <= 3; p++) {
+      if (p !== 0) {
+        this.createTree(plaza, p * 12, 14, 1.8, true);
+        this.createTree(plaza, p * 12, -14, 1.8, true);
+      }
+    }
+
+    // 3. Airport Parking Lot with Electric Shuttle Buses
+    const busMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.5 });
+    [-24, 24].forEach((bx, idx) => {
+      const shuttle = new THREE.Group();
+      shuttle.position.set(bx, 0, 18);
+
+      const busBody = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.4, 8.5), busMat);
+      busBody.position.y = 1.4;
+      const busWindows = new THREE.Mesh(new THREE.BoxGeometry(2.82, 1.0, 7.8), this.glassMat);
+      busWindows.position.y = 1.8;
+      shuttle.add(busBody, busWindows);
+
+      this.createBoard(shuttle, `⚡ SVPIA TERMINAL SHUTTLE ${idx + 1}`, 0, 2.9, 0, 6, 0.8);
+      plaza.add(shuttle);
+    });
+
+    // 4. Airport High-Mast Floodlight Towers (28m tall with 6-lamp LED cluster)
+    [-38, 38].forEach((hx) => {
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.5, 26, 8), this.steelMat);
+      mast.position.set(hx, 13, 0);
+
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.15, 6, 12), this.steelMat);
+      ring.rotation.x = Math.PI / 2;
+      ring.position.set(hx, 25.5, 0);
+
+      const lampLight = new THREE.PointLight(0xffedd5, 3.0, 50);
+      lampLight.position.set(hx, 25, 0);
+
+      plaza.add(mast, ring, lampLight);
+    });
+
+    parent.add(plaza);
+  }
+
+  /**
+   * Build Animated Circling In-Flight Aircraft (Flight GJ-202) in the sky over Ahmedabad
+   */
+  private buildAirborneAircraft(parent: THREE.Group) {
+    const flightGroup = new THREE.Group();
+    const flightModel = this.createAirlinerModel({
+      liveryName: 'Airbus A350 Garvi',
+      airlineNameGujarati: 'ગરવી ગુજરાત એરલાઇન્સ',
+      primaryColor: 0xffffff,
+      stripeColor: 0x0284c7,
+      tailColor: 0xf97316,
+      flightNumber: 'GJ-202 (In-Flight / Takeoff)',
+    });
+    flightModel.scale.set(0.7, 0.7, 0.7);
+    flightGroup.add(flightModel);
+
+    // Wingtip Strobe LEDs
+    const strobeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const strobeL = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), strobeMat);
+    strobeL.position.set(-11, 2.5, -3);
+    const strobeR = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), strobeMat);
+    strobeR.position.set(11, 2.5, -3);
+    flightGroup.add(strobeL, strobeR);
+
+    // Initial positioning in sky over airport
+    const initialRadius = 140;
+    flightGroup.position.set(initialRadius, 65, -40);
+
+    parent.add(flightGroup);
+
+    this.animatableAirplanes.push({
+      group: flightGroup,
+      speed: 0.14,
+      radius: initialRadius,
+      baseAlt: 65,
+      angle: 0,
+      strobeTimer: 0,
+      strobeLights: [strobeL, strobeR],
+    });
+  }
+
+  /**
    * Build roadside infrastructure: Gujarati Petrol Pumps, Mechanics, Toll Plazas, Dhabas
    */
   private buildRoadsideScenery(locations: LocationData[]) {
@@ -1740,6 +2500,31 @@ export class EnvironmentBuilder {
         const scale = 1.0 + progress * 1.6;
         steam.mesh.scale.set(scale, scale, scale);
         (steam.mesh.material as THREE.MeshStandardMaterial).opacity = 0.6 * (1 - progress);
+      }
+    }
+
+    // 4. Rotate Airport ATC Tower Radars
+    for (const radar of this.animatableRadars) {
+      radar.rotation.y += delta * 2.2;
+    }
+
+    // 5. Animate In-Flight Commercial Aircraft circling Ahmedabad Airport
+    for (const plane of this.animatableAirplanes) {
+      plane.angle += delta * plane.speed;
+      const px = Math.cos(plane.angle) * plane.radius;
+      const pz = -40 + Math.sin(plane.angle) * plane.radius;
+      const py = plane.baseAlt + Math.sin(plane.angle * 2) * 5;
+      plane.group.position.set(px, py, pz);
+
+      // Tangent heading orientation in direction of flight
+      plane.group.rotation.y = -plane.angle;
+      plane.group.rotation.z = 0.12; // Bank angle into circle
+
+      // Wingtip strobe flash
+      plane.strobeTimer += delta;
+      const isFlash = Math.floor(plane.strobeTimer * 3.5) % 2 === 0;
+      for (const st of plane.strobeLights) {
+        st.visible = isFlash;
       }
     }
   }
@@ -2609,6 +3394,13 @@ export class EnvironmentBuilder {
         type: 'tea',
         x: 410,
         z: 80,
+      },
+      {
+        id: 'enc_airport_circle',
+        name: '✈️ એરપોર્ટ સર્કલ ટી & મસ્કાબન લાઉન્જ',
+        type: 'tea',
+        x: -270,
+        z: -40,
       },
     ];
 

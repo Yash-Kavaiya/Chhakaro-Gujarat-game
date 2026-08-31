@@ -250,6 +250,28 @@ export const GUJARAT_HIGHWAY_CORRIDORS: HighwayCorridor[] = [
     type: 'national',
     hasSignalGantry: true,
   },
+  {
+    id: 'gj_airport_express_ahmedabad',
+    code: 'GJ-AIRPORT',
+    fromId: 'ahmedabad',
+    toId: 'ahmedabad_airport',
+    nameGujarati: 'અમદાવાદ-SVPIA એરપોર્ટ એપ્રોચ રોડ',
+    nameEnglish: 'Ahmedabad - SVPIA Airport Approach Road',
+    speedLimit: 60,
+    type: 'expressway',
+    hasSignalGantry: true,
+  },
+  {
+    id: 'gj_airport_express_rajkot',
+    code: 'NH-47A',
+    fromId: 'rajkot',
+    toId: 'ahmedabad_airport',
+    nameGujarati: 'રાજકોટ-અમદાવાદ એરપોર્ટ લિંક',
+    nameEnglish: 'Rajkot - SVPIA Airport Link',
+    speedLimit: 70,
+    type: 'expressway',
+    hasSignalGantry: true,
+  },
 ];
 
 export interface ResolvedHighwaySegment {

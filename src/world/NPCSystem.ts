@@ -213,6 +213,14 @@ export class NPCSystem {
         this.createNPC('pilgrim_female', 'walk', center.x + 10, center.z - 8, 'પૂજ્ય બાપુની ઐતિહાસિક દાંડી યાત્રા!', 12);
         this.createNPC('child_waver', 'wave', center.x - 5, center.z + 6, 'વંદે માતરમ!');
         break;
+
+      case 'ahmedabad_airport':
+        // Pilots, travelers, airport staff, and visitors
+        this.createNPC('kathiyawadi_male', 'walk', center.x - 14, center.z - 10, 'સરદાર પટેલ આંતરરાષ્ટ્રીય એરપોર્ટમાં આપનું સ્વાગત છે!', 15);
+        this.createNPC('garba_female', 'walk', center.x + 12, center.z - 12, 'લંડન, દુબઈ અને અમેરિકાની ફ્લાઇટ્સ અહીંથી ઊડે છે!', 14);
+        this.createNPC('child_waver', 'wave', center.x + 4, center.z + 8, 'જુઓ મોટું વિમાન ટેકઓફ થાય છે! આવજો!');
+        this.createNPC('chaiwala', 'pour_tea', center.x - 18, center.z + 6, 'એરપોર્ટ સ્પેશિયલ ગરમ મસાલા ચા & બટર બન!');
+        break;
     }
   }
 
