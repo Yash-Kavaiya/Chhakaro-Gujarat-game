@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Send, Volume2, X, Sparkles, MessageSquare } from 'lucide-react';
 import { LocationData, WeatherType } from '../types';
-import { soundManager } from '../audio/SoundManager';
+import { voiceQueue } from '../audio/VoiceQueue';
 
 interface KanjiKakaGuideProps {
   isOpen: boolean;
@@ -157,8 +157,8 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
       setMessages((prev) => [...prev, kakaMsg]);
       onNewKakaReply(replyText);
 
-      // Play Gujarati Voice narration
-      soundManager.speakGujaratiTextFallback(replyText);
+      // Play Gujarati Voice narration through the shared non-overlapping queue
+      voiceQueue.enqueue(replyText);
     } catch (err) {
       console.error('Error fetching guide reply', err);
       const fallbackMsg: ChatMessage = {
@@ -244,7 +244,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
                   <span>{m.timestamp}</span>
                   {m.sender === 'kaka' && (
                     <button
-                      onClick={() => soundManager.speakGujaratiTextFallback(m.text)}
+                      onClick={() => voiceQueue.enqueue(m.text, { priority: 'high' })}
                       className="hover:text-amber-300 flex items-center gap-1"
                       title="ફરીથી સાંભળો"
                     >

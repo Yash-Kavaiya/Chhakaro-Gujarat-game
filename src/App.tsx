@@ -37,6 +37,7 @@ import { GUJARAT_MISSIONS } from './data/missions';
 import { GUJARATI_SOUVENIRS } from './data/souvenirs';
 import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
+import { voiceQueue } from './audio/VoiceQueue';
 import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
@@ -241,7 +242,9 @@ export default function App() {
     const s = toneSound(tone);
     if (s === 'chime') soundManager.playChime();
     else if (s === 'horn') soundManager.playHorn(1);
-    if (speak) soundManager.speakGujaratiTextFallback(text);
+    // Kaka narration goes through the shared queue so lines never overlap; the short
+    // tone SFX above stays on soundManager.
+    if (speak) voiceQueue.enqueue(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), ttlMs);
   };
@@ -285,15 +288,20 @@ export default function App() {
       const cues = navCuesRef.current;
       if (!cues.start) {
         cues.start = true;
-        soundManager.speakGujaratiTextFallback(
+        voiceQueue.enqueue(
           `${loc.nameGujarati} તરફ ચાલો — અંતર આશરે ${(ns.distanceM / 1000).toFixed(1)} કિમી`,
+          { dedupeKey: `nav-start:${loc.id}` },
         );
       } else if (!cues.half && ns.distanceM < startDist * 0.5) {
         cues.half = true;
-        soundManager.speakGujaratiTextFallback(`અડધો રસ્તો કપાયો — ${loc.nameGujarati} નજીક આવે છે`);
+        voiceQueue.enqueue(`અડધો રસ્તો કપાયો — ${loc.nameGujarati} નજીક આવે છે`, {
+          dedupeKey: `nav-half:${loc.id}`,
+        });
       } else if (!cues.near && ns.distanceM < loc.zoneRadius * 1.8) {
         cues.near = true;
-        soundManager.speakGujaratiTextFallback(`લગભગ પહોંચી ગયા! ${loc.nameGujarati} સામે જ છે`);
+        voiceQueue.enqueue(`લગભગ પહોંચી ગયા! ${loc.nameGujarati} સામે જ છે`, {
+          dedupeKey: `nav-near:${loc.id}`,
+        });
       }
 
       if (ns.arrived) {
@@ -620,7 +628,7 @@ export default function App() {
     setIsGameStarted(true);
 
     soundManager.startEngine();
-    soundManager.speakGujaratiTextFallback(
+    voiceQueue.enqueue(
       isResume
         ? `ફરી સ્વાગત છે! આપણો છકડો ${startLoc.nameGujarati} થી આગળ વધે છે. જય ગરવી ગુજરાત!`
         : `ચાલો બાપા! આપણો છકડો ${startLoc.nameGujarati} થી ઉપડ્યો! જય ગરવી ગુજરાત!`,
