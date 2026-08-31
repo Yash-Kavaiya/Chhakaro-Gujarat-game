@@ -89,6 +89,26 @@ describe('persistence', () => {
     expect(loadProgress()).toEqual(DEFAULT_PROGRESS);
   });
 
+  it('migrates a v3 save forward, back-filling newer fields', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: 3,
+      progress: { coins: 777, visitedLocations: ['rajkot', 'dwarka'] },
+    }));
+    const p = loadProgress();
+    expect(p.coins).toBe(777);
+    expect(p.visitedLocations).toEqual(['rajkot', 'dwarka']);
+    expect(p.transmissionMode).toBe('auto');
+    expect(p.expertMode).toBe(false);
+  });
+
+  it('still resets a pre-v3 (v2) save to defaults', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: 2,
+      progress: { coins: 777, visitedLocations: ['rajkot', 'dwarka'] },
+    }));
+    expect(loadProgress()).toEqual(DEFAULT_PROGRESS);
+  });
+
   it('resets to defaults on corrupt JSON', () => {
     localStorage.setItem(SAVE_KEY, '{not json');
     expect(loadProgress()).toEqual(DEFAULT_PROGRESS);

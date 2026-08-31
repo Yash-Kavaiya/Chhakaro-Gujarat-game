@@ -114,7 +114,7 @@ export class IncidentDirector {
 
     if (this.activeKind) {
       this.animT += delta;
-      this.animateActive(delta, headingRad);
+      this.animateActive(delta);
     }
 
     return spawnedThisFrame;
@@ -142,7 +142,7 @@ export class IncidentDirector {
 
   // ---- animation --------------------------------------------------------------
 
-  private animateActive(delta: number, headingRad: number): void {
+  private animateActive(delta: number): void {
     switch (this.activeKind) {
       case 'cattle_crossing': {
         // Cows shuffle slowly across the carriageway, wrapping back around.
@@ -161,11 +161,13 @@ export class IncidentDirector {
         break;
       }
       case 'slow_tractor': {
-        // Tractor creeps forward along the player's heading at a walking pace.
+        // Tractor creeps forward along ITS OWN facing (rotation.y, fixed at spawn) at a
+        // walking pace — not the player's live heading, which would make it veer as the
+        // player turns.
         const crawl = 2.2 * delta;
         const g = this.groups.slow_tractor;
-        g.position.x -= Math.sin(headingRad) * crawl;
-        g.position.z -= Math.cos(headingRad) * crawl;
+        g.position.x -= Math.sin(g.rotation.y) * crawl;
+        g.position.z -= Math.cos(g.rotation.y) * crawl;
         break;
       }
       case 'rain_puddle': {

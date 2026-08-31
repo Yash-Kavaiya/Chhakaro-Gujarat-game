@@ -669,7 +669,14 @@ export const HUD: React.FC<HUDProps> = ({
               <span className="font-black text-amber-200 truncate">{nearbyLandmark.nameGujarati}</span>
               <span className="text-slate-400 shrink-0">—</span>
               <span className="text-slate-300 shrink-0">
-                <span className="font-bold text-amber-300">E</span> દબાવો · {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
+                {/* Expert mode rebinds E to shift-up, so only show the key hint outside Expert.
+                    The whole pill is still tappable/clickable either way. */}
+                {!expertMode && (
+                  <>
+                    <span className="font-bold text-amber-300">E</span> દબાવો ·{' '}
+                  </>
+                )}
+                {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
               </span>
             </button>
           );

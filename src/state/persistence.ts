@@ -56,7 +56,17 @@ export function loadProgress(): GameProgress {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return { ...DEFAULT_PROGRESS };
     const parsed = JSON.parse(raw) as unknown;
-    if (!isPlainObject(parsed) || parsed.version !== SCHEMA_VERSION || !isPlainObject(parsed.progress)) {
+    // loadProgress is a total field-by-field validator that back-fills every field from
+    // DEFAULT_PROGRESS, so any save from v3 onward is forward-compatible and loses nothing
+    // (transmissionMode / expertMode already have their own safe-default validation below).
+    // Only a genuinely older (< 3), newer (> SCHEMA_VERSION), or absent version resets.
+    if (
+      !isPlainObject(parsed) ||
+      typeof parsed.version !== 'number' ||
+      parsed.version < 3 ||
+      parsed.version > SCHEMA_VERSION ||
+      !isPlainObject(parsed.progress)
+    ) {
       return { ...DEFAULT_PROGRESS };
     }
     // Validate every field against its default. A partial or type-mangled save must never
