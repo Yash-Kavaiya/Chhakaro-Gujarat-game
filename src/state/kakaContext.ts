@@ -15,6 +15,8 @@ export type KakaEvent =
 export interface KakaContext {
   zone: { id: string; nameGujarati: string; region: string };
   nearbyLandmarkId: string | null;
+  /** The nearby landmark is one the player has not stamped yet and is not already headed to. */
+  nearbyLandmarkUnvisited: boolean;
   visitedCount: number;
   totalLocations: number;
   mission: { titleGujarati: string; dropNameGujarati: string } | null;
@@ -36,6 +38,7 @@ export interface BuildKakaContextInput {
   zoneNameGujarati: string;
   zoneRegion: string;
   nearbyLandmarkId: string | null;
+  nearbyLandmarkUnvisited: boolean;
   visitedCount: number;
   totalLocations: number;
   mission: { titleGujarati: string; dropNameGujarati: string } | null;
@@ -57,6 +60,7 @@ export function buildKakaContext(input: BuildKakaContextInput): KakaContext {
   return {
     zone: { id: input.zoneId, nameGujarati: input.zoneNameGujarati, region: input.zoneRegion },
     nearbyLandmarkId: input.nearbyLandmarkId,
+    nearbyLandmarkUnvisited: input.nearbyLandmarkUnvisited,
     visitedCount: input.visitedCount,
     totalLocations: input.totalLocations,
     mission: input.mission,

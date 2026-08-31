@@ -6,6 +6,7 @@ const base: BuildKakaContextInput = {
   zoneNameGujarati: 'રાજકોટ',
   zoneRegion: 'saurashtra',
   nearbyLandmarkId: null,
+  nearbyLandmarkUnvisited: false,
   visitedCount: 1,
   totalLocations: 16,
   mission: null,

@@ -45,6 +45,7 @@ import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 import { navState, NavState } from './state/navigation';
 import { nearestUnvisited } from './state/exploration';
 import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
+import { evaluateKakaTriggers } from './state/kakaTriggers';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -159,6 +160,9 @@ export default function App() {
         zoneNameGujarati: currentLocation.nameGujarati,
         zoneRegion: currentLocation.region,
         nearbyLandmarkId: nearbyLandmark?.id ?? null,
+        nearbyLandmarkUnvisited: nearbyLandmark
+          ? !visitedLocations.includes(nearbyLandmark.id) && navTarget?.locationId !== nearbyLandmark.id
+          : false,
         visitedCount: visitedLocations.length,
         totalLocations: GUJARAT_LOCATIONS.length,
         mission: activeMission
@@ -227,6 +231,8 @@ export default function App() {
   const [isPhotoModeOpen, setIsPhotoModeOpen] = useState(false);
   const [inspectingLandmark, setInspectingLandmark] = useState<LocationData | null>(null);
   const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
+  // "કાકા શાંત" — silences Kaka's proactive lines. Task 10 adds the HUD toggle + persistence.
+  const [kakaMuted, setKakaMuted] = useState(false);
 
   // The single reward / event feedback channel. Every path that used to pair an ad-hoc
   // setFloatingBanner(...) with a loose soundManager.* call now calls notify() — one banner
@@ -250,6 +256,24 @@ export default function App() {
   };
 
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
+
+  // Proactive Kanji Kaka narration. Diff the previous vs current context snapshot on every
+  // change; evaluateKakaTriggers is pure and rising-edge, and firedTriggerIds keeps each
+  // trigger to one utterance per session. The very first snapshot only seeds the ref so the
+  // "entered rajkot" line doesn't double up with the start-game greeting.
+  const prevKakaContextRef = useRef<KakaContext | null>(null);
+  const firedTriggerIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isGameStarted) return;
+    const prev = prevKakaContextRef.current;
+    prevKakaContextRef.current = kakaContext;
+    if (!prev) return;
+    const fire = evaluateKakaTriggers(prev, kakaContext);
+    if (!fire || kakaMuted || firedTriggerIds.current.has(fire.id)) return;
+    firedTriggerIds.current.add(fire.id);
+    voiceQueue.enqueue(fire.textGujarati, { priority: fire.priority, dedupeKey: fire.id });
+    notify({ text: fire.textGujarati, tone: 'info', speak: false });
+  }, [isGameStarted, kakaContext, kakaMuted]);
 
   // Initialize Three.js Game World
   useEffect(() => {
