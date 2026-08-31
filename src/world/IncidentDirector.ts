@@ -17,6 +17,7 @@ import {
  */
 const SPAWN_AHEAD = 40; // units in front of the player along its heading
 const SLOW_RADIUS = 14; // within this many units of the obstacle the player must crawl
+const ROLL_INTERVAL_S = 1.0; // consult the pure scheduler ~1 Hz, not every frame
 
 export class IncidentDirector {
   private scene: THREE.Scene;
@@ -25,6 +26,9 @@ export class IncidentDirector {
   private groups: Record<IncidentKind, THREE.Group>;
   private activeKind: IncidentKind | null = null;
   private animT = 0;
+  // Seconds accumulated since the scheduler was last consulted (throttled to ~1 Hz so the
+  // "first eligible frame always spawns" behaviour is gone and the cadence spreads out).
+  private rollAccumulator = 0;
 
   // Latest player position, stashed each frame so the `playerMustSlow` getter can
   // measure distance without arguments.
@@ -55,7 +59,8 @@ export class IncidentDirector {
   }
 
   /** Called each frame from GameWorld.animate. Returns the IncidentSpawn on the
-   *  frame an incident appears (so the caller can fire a notify), else null. */
+   *  frame an incident appears (so the caller can fire a notify), else null.
+   *  The scheduler is consulted ~1 Hz; `animateActive` and `playerMustSlow` stay per-frame. */
   update(
     delta: number,
     playerPos: THREE.Vector3,
@@ -67,37 +72,44 @@ export class IncidentDirector {
   ): IncidentSpawn | null {
     this.playerPos.copy(playerPos);
 
-    const { state, spawn, despawn } = stepIncidentSchedule({
-      state: this.state,
-      distanceDriven,
-      speedKmh,
-      zoneId,
-      weather,
-      roll: Math.random(),
-    });
-    this.state = state;
+    let spawnedThisFrame: IncidentSpawn | null = null;
 
-    if (despawn && this.activeKind) {
-      this.groups[this.activeKind].visible = false;
-      this.activeKind = null;
-    }
+    this.rollAccumulator += delta;
+    if (this.rollAccumulator >= ROLL_INTERVAL_S) {
+      this.rollAccumulator = 0;
 
-    if (spawn) {
-      const g = this.groups[spawn.kind];
-      g.position.set(
-        playerPos.x - Math.sin(headingRad) * SPAWN_AHEAD,
-        0,
-        playerPos.z - Math.cos(headingRad) * SPAWN_AHEAD
-      );
-      g.rotation.y = headingRad;
-      g.visible = true;
-      this.activeKind = spawn.kind;
-      this.animT = 0;
-      // Reset the cattle line so they start on one side each time.
-      this.cows.forEach((cow, i) => {
-        cow.position.x = -5 + i * 0.6;
+      const { state, spawn, despawn } = stepIncidentSchedule({
+        state: this.state,
+        distanceDriven,
+        speedKmh,
+        zoneId,
+        weather,
+        roll: Math.random(),
       });
-      return spawn;
+      this.state = state;
+
+      if (despawn && this.activeKind) {
+        this.groups[this.activeKind].visible = false;
+        this.activeKind = null;
+      }
+
+      if (spawn) {
+        const g = this.groups[spawn.kind];
+        g.position.set(
+          playerPos.x - Math.sin(headingRad) * SPAWN_AHEAD,
+          0,
+          playerPos.z - Math.cos(headingRad) * SPAWN_AHEAD
+        );
+        g.rotation.y = headingRad;
+        g.visible = true;
+        this.activeKind = spawn.kind;
+        this.animT = 0;
+        // Reset the cattle line so they start on one side each time.
+        this.cows.forEach((cow, i) => {
+          cow.position.x = -5 + i * 0.6;
+        });
+        spawnedThisFrame = spawn;
+      }
     }
 
     if (this.activeKind) {
@@ -105,7 +117,7 @@ export class IncidentDirector {
       this.animateActive(delta, headingRad);
     }
 
-    return null;
+    return spawnedThisFrame;
   }
 
   /** True while the player is within the active obstacle's slow-zone. */
@@ -312,7 +324,8 @@ export class IncidentDirector {
     );
     const disc = new THREE.Mesh(this.track(new THREE.CircleGeometry(6, 24)), this.puddleMat);
     disc.rotation.x = -Math.PI / 2;
-    disc.position.y = 0.02;
+    // World terrain plane is at y = -0.05; keep every horizontal plane >= ~0.05 to avoid z-fighting.
+    disc.position.y = 0.06;
     group.add(disc);
     return group;
   }

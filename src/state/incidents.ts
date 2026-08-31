@@ -19,19 +19,24 @@ export interface IncidentSchedulerState {
   nextEligibleAtDistance: number;
 }
 
-/** Clear road required after one incident ends before the next is eligible. */
-export const MIN_GAP_M = 500;
+/** Clear road required after one incident ends before the next is eligible. Tuned so a
+ *  ~40 km/h cruise meets roughly 2–3 incidents per 10 minutes (spec §10 "reads as
+ *  realistic, not a bug"), not one every ~700 m. */
+export const MIN_GAP_M = 2800;
 /** Incidents only appear while the player is actually moving. */
 const SPEED_FLOOR_KMH = 15;
-/** Per-eligible-frame chance the caller's roll must beat for a spawn. */
+/** Chance the caller's roll must beat for a spawn, per scheduler tick (the director
+ *  ticks this ~1 Hz, not per frame, so the cadence gets an organic spread). */
 const SPAWN_CHANCE = 0.15;
+/** Small head-start so a first-timer isn't hit with an incident in the opening seconds. */
+const INITIAL_ELIGIBLE_M = 800;
 /** Once the incident is this far behind `placedAtDistance` it is retired. */
 const DESPAWN_BEHIND_M = 180;
 /** Zones where cattle on the carriageway is the everyday hazard. */
 const CATTLE_ZONES = ['gir', 'rajkot', 'saputara'];
 
 export function initIncidentSchedule(): IncidentSchedulerState {
-  return { active: null, lastEndedAtDistance: 0, nextEligibleAtDistance: 0 };
+  return { active: null, lastEndedAtDistance: 0, nextEligibleAtDistance: INITIAL_ELIGIBLE_M };
 }
 
 /** Weighted pick of the incident kind. `sub` is a fresh 0..1 value derived from the
@@ -55,9 +60,9 @@ function pickKind(zoneId: string, weather: string, sub: number): IncidentKind {
   return 'stalled_truck';
 }
 
-/** Advance the schedule one frame. Pure: returns the (possibly new) state plus a
- *  command for the world layer — `spawn` on the frame an incident appears, `despawn`
- *  on the frame it is retired. */
+/** Advance the schedule one tick. Pure: returns the (possibly new) state plus a
+ *  command for the world layer — `spawn` on the tick an incident appears, `despawn`
+ *  on the tick it is retired. */
 export function stepIncidentSchedule(params: {
   state: IncidentSchedulerState;
   distanceDriven: number;
