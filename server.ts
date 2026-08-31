@@ -27,6 +27,98 @@ function getAI(): GoogleGenAI | null {
   return aiClient;
 }
 
+// Personality modes that shape Kaka's tone for a reply.
+type KakaMode = 'ask' | 'story' | 'duha' | 'food' | 'directions';
+const KAKA_MODES: KakaMode[] = ['ask', 'story', 'duha', 'food', 'directions'];
+const MODE_TONE: Record<KakaMode, string> = {
+  ask: 'સીધો, ટૂંકો અને માહિતીભર્યો જવાબ આપો.',
+  story: 'આ સ્થળનો એક રસપ્રદ ઐતિહાસિક પ્રસંગ કે લોકવાયકા ટૂંકમાં કહો.',
+  duha: 'એક અસલ કાઠિયાવાડી દુહો, કહેવત કે લોકગીતની કડી સંભળાવો અને પછી તેનો ટૂંકો અર્થ.',
+  food: 'આ વિસ્તારની અસલ દેશી વાનગીઓ અને એ ક્યાં ખાવી તેની વાત કરો.',
+  directions: 'આગળનો રસ્તો, વળાંક અને અંતરની ટૂંકી દિશા-સૂચના આપો.',
+};
+
+// A single normalized view over either the legacy guide body
+// ({ prompt, currentLocation, visitedLocations, speed, weather, timeOfDay }) or the M2
+// KakaContext body ({ prompt, mode, context: {...} } or the context fields flat).
+function normalizeGuideRequest(body: any) {
+  const b = body || {};
+  const c = b.context && typeof b.context === 'object' ? b.context : b;
+
+  const prompt: string = typeof b.prompt === 'string' ? b.prompt : '';
+  const mode: KakaMode | null = KAKA_MODES.includes(b.mode) ? b.mode : null;
+
+  const legacyLoc = b.currentLocation || c.currentLocation || null;
+  const zone =
+    c.zone && typeof c.zone === 'object'
+      ? { id: c.zone.id || 'rajkot', nameGujarati: c.zone.nameGujarati || 'ગુજરાત', region: c.zone.region || 'saurashtra' }
+      : legacyLoc
+        ? {
+            id: legacyLoc.id || 'rajkot',
+            nameGujarati: legacyLoc.nameGujarati || 'ગુજરાત',
+            region: legacyLoc.region || 'saurashtra',
+          }
+        : { id: 'rajkot', nameGujarati: 'રાજકોટ', region: 'saurashtra' };
+
+  const famousFood: string =
+    legacyLoc?.famousFood || (typeof c.recommendedFood === 'string' ? c.recommendedFood : '') || 'કાઠિયાવાડી ગાંઠિયા અને ગરમ ચા';
+
+  const speedKmh = Math.round(Number(c.speedKmh ?? b.speed ?? 0)) || 0;
+  const weather: string = c.weather || b.weather || 'sunny';
+  const timeOfDayPhase: string = c.timeOfDayPhase || b.timeOfDay || 'day';
+  const visitedCount =
+    Number(c.visitedCount ?? (Array.isArray(b.visitedLocations) ? b.visitedLocations.length : 0)) || 0;
+  const totalLocations = Number(c.totalLocations ?? 16) || 16;
+  const mission = c.mission && typeof c.mission === 'object' ? c.mission : null;
+  const nav = c.nav && typeof c.nav === 'object' ? c.nav : null;
+  const nearbyLandmarkId = typeof c.nearbyLandmarkId === 'string' ? c.nearbyLandmarkId : null;
+  const inGirZone = Boolean(c.inGirZone) || zone.id === 'gir';
+  const recentEvents = Array.isArray(c.recentEvents) ? c.recentEvents.slice(0, 5) : [];
+
+  return {
+    prompt,
+    mode,
+    zone,
+    famousFood,
+    speedKmh,
+    weather,
+    timeOfDayPhase,
+    visitedCount,
+    totalLocations,
+    mission,
+    nav,
+    nearbyLandmarkId,
+    inGirZone,
+    recentEvents,
+    // a currentLocation-shaped object the local fallback can branch on
+    fallbackLocation: legacyLoc || { id: zone.id, nameGujarati: zone.nameGujarati, region: zone.region, famousFood },
+  };
+}
+
+// One recent player event → a short Gujarati phrase for the model prompt.
+function describeKakaEvent(e: any): string {
+  switch (e?.kind) {
+    case 'stamp':
+      return `${e.nameGujarati} નો પાસપોર્ટ સ્ટેમ્પ મળ્યો`;
+    case 'food':
+      return `${e.nameGujarati} નો સ્વાદ માણ્યો`;
+    case 'souvenir':
+      return `${e.nameGujarati} ખરીદ્યું`;
+    case 'quiz':
+      return e.correct ? 'ક્વિઝનો સાચો જવાબ આપ્યો' : 'ક્વિઝમાં ખોટો જવાબ પડ્યો';
+    case 'mission_done':
+      return `${e.nameGujarati} નું મુસાફર-મિશન પૂરું કર્યું`;
+    case 'refuel':
+      return 'ડીઝલ પુરાવ્યું';
+    case 'repair':
+      return 'છકડો રીપેર કરાવ્યો';
+    case 'overspeed':
+      return `${e.zone} માં ઝડપ વધારે પડી ગઈ`;
+    default:
+      return '';
+  }
+}
+
 // Contextual fallback response generator for Kanji Kaka when model is under high load
 function generateSmartKakaFallback(
   prompt: string = '',
@@ -84,28 +176,33 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-// Kanji Kaka AI Tour Guide endpoint with multi-model fallback & resilience
+// Kanji Kaka AI Tour Guide endpoint with multi-model fallback & resilience.
+// Accepts the full M2 KakaContext body (or the legacy body — both normalized below).
 app.post('/api/gemini/guide', async (req, res) => {
-  const { prompt, currentLocation, visitedLocations, speed, weather, timeOfDay } = req.body || {};
+  const ctx = normalizeGuideRequest(req.body);
+  const localFallback = () =>
+    generateSmartKakaFallback(ctx.prompt, ctx.fallbackLocation, ctx.speedKmh, ctx.weather);
 
   try {
     const ai = getAI();
-
     if (!ai) {
-      // Fallback if no API key provided in dev/preview
-      return res.json(generateSmartKakaFallback(prompt, currentLocation, speed, weather));
+      // No API key in dev/preview — the local scripted responder carries the demo.
+      return res.json(localFallback());
     }
 
+    const modeLine = ctx.mode
+      ? `\nમોડ: ${ctx.mode} — ${MODE_TONE[ctx.mode]}`
+      : '';
+
     const systemInstruction = `
-તમે "કાનજી કાકો" (Kanji Kaka) છો — એક અનુભવી, માયાળુ, રમૂજી અને કાઠિયાવાડી બોલી બોલતા ગુજરાતી છકડા ટૂર ગાઈડ.
-તમે યુઝર સાથે ગુજરાતના વિવિધ પ્રખ્યાત સ્થળો (Rajkot, Dwarka, Somnath, Gir Forest, Junagadh, Rann of Kutch, Statue of Unity, Saputara, Ahmedabad, Surat વગેરે) ની સફર પર છો.
+તમે "કાનજી કાકો" (Kanji Kaka) છો — સૌરાષ્ટ્રના છકડામાં યુઝરની બાજુમાં બેઠેલા અનુભવી, માયાળુ અને રમૂજી કાઠિયાવાડી ટૂર ગાઈડ. તમે માત્ર ત્યારે જ બોલતા નથી જ્યારે પૂછવામાં આવે — તમને પરિસ્થિતિની ખબર છે અને તમે સામેથી વાત કરો છો.
 
 નિયમો:
-1. હંમેશા શુદ્ધ કાઠિયાવાડી/ગુજરાતી રંગમાં બોલો (જેમ કે: "કાં ભાઈ!", "મોજમાં!", "બાપા", "ડાહ્યા થઈને ચલાવજો", "અરે વાહ!").
-2. વર્તમાન સ્થળ (${currentLocation?.nameGujarati || 'ગુજરાત'}, ${currentLocation?.region || 'સૌરાષ્ટ્ર'}) ના ઇતિહાસ, વિશેષતા, સ્થાનિક વાનગીઓ અને સંસ્કૃતિ વિશે રોચક માહિતી આપો.
-3. જવાબ વધુ પડતો લાંબો ન બનાવો (૨-૪ વાક્યોમાં મજેદાર અને માહિતીસભર).
-4. જો યુઝરે ખાવા-પીવા વિશે પૂછ્યું હોય, તો તે વિસ્તારની અસલ દેશી વાનગીઓ બતાવો.
-5. પ્રત્યુત્તર JSON ફોર્મેટમાં આપો:
+1. હંમેશા અસલ કાઠિયાવાડી/ગુજરાતી લહેકામાં બોલો ("કાં ભાઈ!", "મોજમાં!", "બાપા", "અરે વાહ!", "ડાહ્યા થઈને હંકારજો").
+2. નીચે આપેલા લાઇવ સંદર્ભ (ઝોન, નજીકનું સ્થળ, મિશન, નેવિગેશન, હવામાન, સમય, તાજેતરની ઘટનાઓ) નો ઉપયોગ કરીને જવાબ આપો — સામાન્ય નહીં, પરિસ્થિતિને અનુરૂપ.
+3. ઐતિહાસિક કે સાંસ્કૃતિક હકીકત ચકાસી શકાય તેવી જ કહો — ખોટો ઇતિહાસ ક્યારેય ન બનાવો.
+4. જવાબ ટૂંકો રાખો: ૨-૪ વાક્ય, મજેદાર અને માહિતીસભર.${modeLine}
+5. ફક્ત આ JSON આપો, બીજું કંઈ નહીં:
 {
   "reply": "કાનજી કાકાનો ગુજરાતી જવાબ",
   "kakaMood": "cheerful | wise | excited | hungry | nostalgic",
@@ -113,19 +210,23 @@ app.post('/api/gemini/guide', async (req, res) => {
 }
 `;
 
+    const eventLines = ctx.recentEvents.map(describeKakaEvent).filter(Boolean);
     const userMessage = `
-વર્તમાન સ્થળ: ${currentLocation?.nameGujarati || 'રસ્તામાં'} (${currentLocation?.nameEnglish || 'On Road'})
-વિસ્તાર: ${currentLocation?.region || 'ગુજરાત'}
-ઝડપ: ${speed || 0} km/h
-હવામાન: ${weather || 'sunny'}, સમય: ${timeOfDay || 'day'}
-અગાઉ મુલાકાત લીધેલ સ્થળો: ${(visitedLocations || []).join(', ')}
+લાઇવ સંદર્ભ:
+- વર્તમાન ઝોન: ${ctx.zone.nameGujarati} (${ctx.zone.id}, વિસ્તાર: ${ctx.zone.region})
+- નજીકનું જોવાલાયક સ્થળ: ${ctx.nearbyLandmarkId || 'કોઈ ખાસ નહીં'}
+- છકડાની ઝડપ: ${ctx.speedKmh} km/h${ctx.inGirZone ? ' (ગીર ઝોન — ૨૫ ની લિમિટ)' : ''}
+- હવામાન: ${ctx.weather}, સમય: ${ctx.timeOfDayPhase}
+- મુલાકાત લીધેલ સ્થળો: ${ctx.visitedCount}/${ctx.totalLocations}
+- સક્રિય મિશન: ${ctx.mission ? `${ctx.mission.titleGujarati} → ${ctx.mission.dropNameGujarati}` : 'કોઈ નહીં'}
+- નેવિગેશન લક્ષ્ય: ${ctx.nav ? `${ctx.nav.targetNameGujarati}, આશરે ${(Number(ctx.nav.distanceM) / 1000).toFixed(1)} કિમી દૂર` : 'કોઈ નહીં'}
+- તાજેતરની ઘટનાઓ: ${eventLines.length ? eventLines.join('; ') : 'કંઈ ખાસ નહીં'}
 
-યુઝરનો પ્રશ્ન/વાતચીત: "${prompt || 'કાકા, આ સ્થળ વિશે કંઈક કહો ને!'}"
+યુઝરનો પ્રશ્ન/વાતચીત: "${ctx.prompt || 'કાકા, આ સ્થળ વિશે કંઈક કહો ને!'}"
 `;
 
     // Multi-model fallback sequence to handle temporary 503 high-demand spikes
     const candidateModels = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
-    let lastError = null;
     let rawText = '';
 
     for (const modelName of candidateModels) {
@@ -136,14 +237,12 @@ app.post('/api/gemini/guide', async (req, res) => {
           config: {
             systemInstruction,
             responseMimeType: 'application/json',
-            temperature: 0.8,
           },
         });
 
         rawText = response.text || '';
         if (rawText) break;
       } catch (err: any) {
-        lastError = err;
         console.warn(`Model ${modelName} call failed (attempting fallback):`, err?.message || err);
       }
     }
@@ -156,18 +255,18 @@ app.post('/api/gemini/guide', async (req, res) => {
         parsed = {
           reply: rawText,
           kakaMood: 'cheerful',
-          recommendedFood: currentLocation?.famousFood || 'કાઠિયાવાડી ગાંઠિયા',
+          recommendedFood: ctx.famousFood,
         };
       }
       return res.json(parsed);
     }
 
-    // If all models encountered high load or failed, seamlessly return the smart contextual Gujarati fallback
+    // All models under load / failed — serve the smart contextual Gujarati fallback.
     console.warn('All Gemini models temporarily unavailable, serving smart local guide fallback');
-    return res.json(generateSmartKakaFallback(prompt, currentLocation, speed, weather));
+    return res.json(localFallback());
   } catch (error: any) {
     console.error('Gemini guide unexpected handler error:', error);
-    return res.json(generateSmartKakaFallback(prompt, currentLocation, speed, weather));
+    return res.json(localFallback());
   }
 });
 
