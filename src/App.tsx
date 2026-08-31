@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { GameWorld } from './world/GameWorld';
 import { HUD } from './components/HUD';
 import { KanjiKakaGuide } from './components/KanjiKakaGuide';
@@ -46,6 +46,7 @@ import { navState, NavState } from './state/navigation';
 import { nearestUnvisited } from './state/exploration';
 import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 import { evaluateKakaTriggers } from './state/kakaTriggers';
+import { useKakaCompanion } from './state/useKakaCompanion';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -200,6 +201,22 @@ export default function App() {
     ],
   );
 
+  // The last line Kaka said out loud — chat reply or proactive trigger — for the HUD strip.
+  const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
+  // "કાકા શાંત" — silences Kaka's proactive lines. Task 10 adds the HUD toggle + persistence.
+  const [kakaMuted, setKakaMuted] = useState(false);
+
+  // The companion controller reads the context through a ref accessor so its callbacks stay
+  // stable while every request still carries the freshest snapshot.
+  const kakaContextRef = useRef(kakaContext);
+  kakaContextRef.current = kakaContext;
+  const getKakaContext = useCallback(() => kakaContextRef.current, []);
+  const kaka = useKakaCompanion(getKakaContext);
+
+  useEffect(() => {
+    if (kaka.lastReply) setLastKakaNarration(kaka.lastReply);
+  }, [kaka.lastReply]);
+
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
   // effect below, so a plain closure over `activeMission` would freeze at its first value
@@ -230,9 +247,6 @@ export default function App() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isPhotoModeOpen, setIsPhotoModeOpen] = useState(false);
   const [inspectingLandmark, setInspectingLandmark] = useState<LocationData | null>(null);
-  const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
-  // "કાકા શાંત" — silences Kaka's proactive lines. Task 10 adds the HUD toggle + persistence.
-  const [kakaMuted, setKakaMuted] = useState(false);
 
   // The single reward / event feedback channel. Every path that used to pair an ad-hoc
   // setFloatingBanner(...) with a loose soundManager.* call now calls notify() — one banner
@@ -273,6 +287,7 @@ export default function App() {
     firedTriggerIds.current.add(fire.id);
     voiceQueue.enqueue(fire.textGujarati, { priority: fire.priority, dedupeKey: fire.id });
     notify({ text: fire.textGujarati, tone: 'info', speak: false });
+    setLastKakaNarration(fire.textGujarati);
   }, [isGameStarted, kakaContext, kakaMuted]);
 
   // Initialize Three.js Game World
@@ -877,11 +892,10 @@ export default function App() {
         isOpen={isKakaOpen}
         onClose={() => setIsKakaOpen(false)}
         currentLocation={currentLocation}
-        speed={speed}
-        weather={weather}
-        visitedLocations={visitedLocations}
-        lastSpokenMessage={lastKakaNarration}
-        onNewKakaReply={(reply) => setLastKakaNarration(reply)}
+        messages={kaka.messages}
+        isThinking={kaka.isThinking}
+        onAsk={kaka.askKaka}
+        onGenerateTrip={kaka.generateTrip}
       />
 
       <GujaratMapModal
