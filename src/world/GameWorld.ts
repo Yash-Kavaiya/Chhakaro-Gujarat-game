@@ -4,6 +4,8 @@ import { EnvironmentBuilder } from './EnvironmentBuilder';
 import { TimeOfDaySystem } from './TimeOfDaySystem';
 import { NPCSystem } from './NPCSystem';
 import { TrafficSystem } from './TrafficSystem';
+import { IncidentDirector } from './IncidentDirector';
+import { IncidentSpawn } from '../state/incidents';
 import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
@@ -31,6 +33,7 @@ export class GameWorld {
   public timeOfDaySystem: TimeOfDaySystem;
   public npcSystem: NPCSystem;
   public trafficSystem: TrafficSystem;
+  public incidentDirector: IncidentDirector;
 
   // Lighting & Sky
   public dirLight: THREE.DirectionalLight;
@@ -107,6 +110,7 @@ export class GameWorld {
   public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
   public onGearChange?: (gear: Gear) => void;
   public onWeatherChange?: (weather: WeatherType) => void;
+  public onIncident?: (i: IncidentSpawn) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
@@ -199,6 +203,9 @@ export class GameWorld {
     // 8. Spawn Dynamic Gujarati Road Traffic (ST Buses, Tractors, Autos, Cows, Bikes)
     this.trafficSystem = new TrafficSystem(this.scene);
     this.trafficSystem.spawnTraffic(GUJARAT_LOCATIONS);
+
+    // 8b. Procedural road incidents (cattle crossings, stalled trucks, slow tractors, puddles)
+    this.incidentDirector = new IncidentDirector(this.scene);
 
     // 9. Spawn Chhakaro Model
     this.chhakaro = new ChhakaroModel(customization);
@@ -516,6 +523,11 @@ export class GameWorld {
     const distToGir = this.vehiclePos.distanceTo(new THREE.Vector3(150, 0, 550));
     if (distToGir < 160) {
       maxForwardSpeed = Math.min(maxForwardSpeed, 25);
+    }
+
+    // Crawl through an active road incident (cattle on the road, stalled truck, etc.)
+    if (this.incidentDirector.playerMustSlow) {
+      maxForwardSpeed = Math.min(maxForwardSpeed, 12);
     }
 
     // Region/time weather grip: rain slashes accel & braking authority, coastal/dust fog
@@ -850,6 +862,18 @@ export class GameWorld {
       this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn, this.vehicleRotation);
     }
 
+    // Procedural road incidents — pure scheduler + THREE director; notify on the frame one appears
+    const spawned = this.incidentDirector.update(
+      delta,
+      this.vehiclePos,
+      this.vehicleRotation,
+      this.totalDistanceDriven,
+      this.speed,
+      this.currentLocation.id,
+      this.currentWeather
+    );
+    if (spawned) this.onIncident?.(spawned);
+
     // Update dynamic multi-aspect wide traffic signals & countdown timers
     if (this.environmentBuilder?.trafficSignalBuilder) {
       this.environmentBuilder.trafficSignalBuilder.update(delta);
@@ -881,6 +905,9 @@ export class GameWorld {
     }
     if (this.trafficSystem) {
       this.trafficSystem.destroy();
+    }
+    if (this.incidentDirector) {
+      this.incidentDirector.destroy();
     }
     this.renderer.dispose();
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {

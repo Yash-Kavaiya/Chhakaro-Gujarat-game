@@ -51,6 +51,14 @@ import { useKakaCompanion } from './state/useKakaCompanion';
 import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
 import { radioAudioEngine } from './audio/RadioAudioEngine';
 
+// Gujarati warning banners for procedural road incidents (see world/IncidentDirector).
+const INCIDENT_TEXT: Record<string, string> = {
+  cattle_crossing: 'ધ્યાન રાખો — ગાયો રસ્તો ક્રોસ કરે છે!',
+  stalled_truck: 'આગળ ટ્રક બગડ્યો છે — ધીમે!',
+  slow_tractor: 'આગળ ધીમું ટ્રેક્ટર — સાચવીને ઓવરટેક કરો.',
+  rain_puddle: 'આગળ ખાબોચિયું — સ્પીડ ઓછી કરો.',
+};
+
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<GameWorld | null>(null);
@@ -342,6 +350,9 @@ export default function App() {
     // The WeatherDirector re-picks weather as the player drives between regions / times of
     // day; mirror it into React so the HUD icon and Kaka context stay truthful.
     world.onWeatherChange = (w) => setWeather(w);
+
+    // Procedural road incident just appeared ~40 units ahead — warn the player (banner only).
+    world.onIncident = (i) => notify({ text: INCIDENT_TEXT[i.kind], tone: 'warn', speak: false });
 
     // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
     // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
