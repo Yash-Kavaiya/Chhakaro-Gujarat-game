@@ -47,6 +47,8 @@ import { nearestUnvisited } from './state/exploration';
 import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 import { evaluateKakaTriggers } from './state/kakaTriggers';
 import { useKakaCompanion } from './state/useKakaCompanion';
+import { VoiceIntent } from './state/voiceCommands';
+import { radioAudioEngine } from './audio/RadioAudioEngine';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -787,6 +789,38 @@ export default function App() {
     notify({ text: `${loc.nameGujarati} તરફ ચાલો — માર્ગ બતાવું છું`, tone: 'info' });
   };
 
+  // Scoped Gujarati voice commands from the Kaka mic. `unknown` never reaches here — the
+  // modal routes those to askKaka as a question.
+  const handleVoiceIntent = (intent: VoiceIntent) => {
+    switch (intent.kind) {
+      case 'navigate': {
+        const loc = GUJARAT_LOCATIONS.find((l) => l.id === intent.locationId);
+        if (!loc) return;
+        setRouteQueue([]);
+        setNavTarget({ locationId: loc.id });
+        voiceQueue.enqueue(`ચાલો ${loc.nameGujarati} તરફ!`);
+        break;
+      }
+      case 'open':
+        if (intent.target === 'map') setIsMapOpen(true);
+        else if (intent.target === 'passport') setIsPassportOpen(true);
+        else if (intent.target === 'missions') setIsMissionsOpen(true);
+        else if (intent.target === 'garage') setIsGarageOpen(true);
+        break;
+      case 'toggle':
+        if (intent.target === 'music') radioAudioEngine.togglePower();
+        else if (intent.target === 'headlight') handleToggleHeadlight();
+        else if (intent.target === 'mute') handleToggleMute();
+        break;
+      case 'photo':
+        setIsPhotoModeOpen(true);
+        break;
+      case 'repeat':
+        if (lastKakaNarration) voiceQueue.enqueue(lastKakaNarration, { priority: 'high' });
+        break;
+    }
+  };
+
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
     setCustomization(custom);
     if (worldRef.current) {
@@ -930,6 +964,7 @@ export default function App() {
           const first = GUJARAT_LOCATIONS.find((l) => l.id === ids[0]);
           if (first) notify({ text: `સફર શરૂ! પહેલું સ્થળ: ${first.nameGujarati}`, tone: 'reward' });
         }}
+        onVoiceIntent={handleVoiceIntent}
       />
 
       <GujaratMapModal

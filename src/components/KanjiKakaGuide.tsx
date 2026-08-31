@@ -5,6 +5,7 @@ import { GUJARAT_LOCATIONS } from '../data/locations';
 import { voiceQueue } from '../audio/VoiceQueue';
 import { KakaChatMessage, KakaMode } from '../state/useKakaCompanion';
 import { TripPlan } from '../state/tripPlanner';
+import { matchVoiceIntent, VoiceIntent } from '../state/voiceCommands';
 
 interface KanjiKakaGuideProps {
   isOpen: boolean;
@@ -15,6 +16,7 @@ interface KanjiKakaGuideProps {
   onAsk: (prompt: string, mode?: KakaMode) => void;
   onGenerateTrip: (request: string) => Promise<TripPlan>;
   onStartTrip: (locationIds: string[]) => void;
+  onVoiceIntent: (intent: VoiceIntent) => void;
 }
 
 const locName = (id: string): string =>
@@ -37,6 +39,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
   onAsk,
   onGenerateTrip,
   onStartTrip,
+  onVoiceIntent,
 }) => {
   const [inputText, setInputText] = useState('');
   const [activeMode, setActiveMode] = useState<KakaMode>('ask');
@@ -52,12 +55,18 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const activeModeRef = useRef<KakaMode>('ask');
   activeModeRef.current = activeMode;
+  // Handlers read through refs so the once-registered SpeechRecognition never goes stale.
+  const onAskRef = useRef(onAsk);
+  onAskRef.current = onAsk;
+  const onVoiceIntentRef = useRef(onVoiceIntent);
+  onVoiceIntentRef.current = onVoiceIntent;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isThinking, tripPlan]);
 
-  // Gujarati speech-to-text. Registered once; reads the live mode through a ref.
+  // Gujarati speech-to-text. Registered once; a scoped command runs as an intent, anything
+  // else is asked as a question. Mode + handlers are read through refs.
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) return;
@@ -67,7 +76,11 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
     rec.lang = 'gu-IN';
     rec.onresult = (event: any) => {
       const transcript = event.results?.[0]?.[0]?.transcript;
-      if (transcript) onAsk(transcript, activeModeRef.current);
+      if (transcript) {
+        const intent = matchVoiceIntent(transcript, GUJARAT_LOCATIONS);
+        if (intent.kind !== 'unknown') onVoiceIntentRef.current(intent);
+        else onAskRef.current(transcript, activeModeRef.current);
+      }
       setIsListening(false);
     };
     rec.onerror = () => setIsListening(false);
@@ -80,7 +93,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
         /* noop */
       }
     };
-  }, [onAsk]);
+  }, []);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
