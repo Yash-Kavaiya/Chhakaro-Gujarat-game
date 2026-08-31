@@ -841,6 +841,17 @@ export default function App() {
     }
   };
 
+  // "Rest till morning" — skip the day/night phase forward to the next 06:00. M3 is a plain
+  // skip; M4 ties it to dhaba stops. Does not touch the odometer or any freeze mode.
+  const handleRest = () => {
+    if (!worldRef.current) return;
+    const h = timeOfDay?.hour ?? 22;
+    const m = timeOfDay?.minute ?? 0;
+    const hoursUntilSix = (6 - (h + m / 60) + 24) % 24;
+    worldRef.current.advanceTimeOfDay(hoursUntilSix);
+    notify({ text: 'સવાર પડી — તાજામાજા થઈને ચાલો!', tone: 'reward' });
+  };
+
   const handleFastTravel = (loc: LocationData) => {
     if (worldRef.current) {
       worldRef.current.teleportToLocation(loc);
@@ -1045,6 +1056,7 @@ export default function App() {
             onChangeWeather={handleChangeWeather}
             onToggleFreezeDay={handleToggleFreezeDay}
             onSetTimeFreezeMode={handleSetTimeFreezeMode}
+            onRest={handleRest}
             onOpenMap={() => setIsMapOpen(true)}
             onOpenPassport={() => setIsPassportOpen(true)}
             onOpenFood={() => setIsFoodOpen(true)}

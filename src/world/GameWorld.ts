@@ -285,6 +285,11 @@ export class GameWorld {
     this.timeOfDaySystem.setFreezeMode(mode);
   }
 
+  /** Skip the day/night phase forward by N virtual hours ("rest till morning"). */
+  public advanceTimeOfDay(hours: number) {
+    this.timeOfDaySystem.advanceTimeOfDay(hours);
+  }
+
   public toggleFreezeDay(): boolean {
     const isNowDayFrozen = this.timeOfDaySystem.toggleDayFreeze();
     soundManager.playClick();
@@ -760,6 +765,8 @@ export class GameWorld {
     // Update smooth distance-based time of day & lighting
     const timeState = this.timeOfDaySystem.update(this.totalDistanceDriven, this.vehiclePos, this.currentWeather);
     this.currentTimeOfDayState = timeState;
+    // Light up city windows / street lamps at night; bloom the coastal aarti glow at dusk
+    this.environmentBuilder.setNightFactor(THREE.MathUtils.clamp(-timeState.sunElevation * 1.6 + 0.15, 0, 1));
     if (this.onTimeOfDayUpdate) {
       this.onTimeOfDayUpdate(timeState);
     }

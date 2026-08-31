@@ -70,6 +70,7 @@ interface HUDProps {
   onChangeWeather: () => void;
   onToggleFreezeDay?: () => void;
   onSetTimeFreezeMode?: (mode: TimeFreezeMode) => void;
+  onRest?: () => void;
   onOpenMap: () => void;
   onOpenPassport: () => void;
   onOpenFood: () => void;
@@ -125,6 +126,7 @@ export const HUD: React.FC<HUDProps> = ({
   onChangeWeather,
   onToggleFreezeDay,
   onSetTimeFreezeMode,
+  onRest,
   onOpenMap,
   onOpenPassport,
   onOpenFood,
@@ -384,6 +386,24 @@ export const HUD: React.FC<HUDProps> = ({
                     </div>
                     {timeOfDay.freezeMode === 'night' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
                   </button>
+
+                  {/* Rest till morning — skip the night, jump to the next 06:00 */}
+                  {onRest && (
+                    <button
+                      id="time-opt-rest"
+                      onClick={() => {
+                        onRest();
+                        setIsTimeMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2 p-2 rounded-xl transition-all mt-1 border-t border-slate-800 pt-2.5 hover:bg-sky-500/20 text-sky-200"
+                    >
+                      <span className="text-lg">🛌</span>
+                      <div className="text-left">
+                        <div className="font-bold">વિશ્રામ કરો (Rest till morning)</div>
+                        <div className="text-[10px] text-slate-400">રાત વિતાવીને સીધા સવારે ૦૬:૦૦ વાગ્યે</div>
+                      </div>
+                    </button>
+                  )}
                 </div>
               )}
             </div>

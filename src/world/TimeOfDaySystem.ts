@@ -45,6 +45,10 @@ export class TimeOfDaySystem {
   private currentProgress: number = 0;
   private smoothProgress: number = 0;
 
+  // Virtual time skipped by "rest till morning" — added to the driven distance for the
+  // day/night phase only. The returned totalDistanceMeters keeps the real odometer.
+  private timeOffsetMeters = 0;
+
   // Keyframes along 24h cycle (starting at 0.0 = 06:00 AM sunrise)
   private keyframes: LightingKeyframe[] = [
     {
@@ -419,8 +423,9 @@ export class TimeOfDaySystem {
     // Keep celestial objects centered over player
     this.celestialGroup.position.set(playerPos.x, 0, playerPos.z);
 
-    // Calculate progress (0.0 to 1.0)
-    let rawProgress = (totalDistanceDriven % this.cycleDistance) / this.cycleDistance;
+    // Calculate progress (0.0 to 1.0). The rest-skip offset advances only the phase clock.
+    const effectiveDistance = totalDistanceDriven + this.timeOffsetMeters;
+    let rawProgress = (effectiveDistance % this.cycleDistance) / this.cycleDistance;
 
     if (this.manualMode) {
       rawProgress = this.manualProgress;
@@ -614,6 +619,14 @@ export class TimeOfDaySystem {
       return;
     }
     this.setFreezeMode(phase);
+  }
+
+  /**
+   * Skip forward by a number of virtual hours (e.g. "rest till morning").
+   * Only shifts the day/night phase; does not touch manualMode or the real odometer.
+   */
+  public advanceTimeOfDay(hours: number) {
+    this.timeOffsetMeters += (hours / 24) * this.cycleDistance;
   }
 
   public isAutoMode(): boolean {

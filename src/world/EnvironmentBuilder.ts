@@ -48,6 +48,11 @@ export class EnvironmentBuilder {
   public animatableSmokePuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
   public animatableSteamPuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
 
+  // Night atmosphere: lit windows, street lamps & coastal aarti glow — driven by setNightFactor()
+  private nightEmissiveMaterials: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
+  private streetLamps: THREE.PointLight[] = [];
+  private aartiLights: THREE.PointLight[] = [];
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.roadSignBuilder = new RoadSignBuilder(scene);
@@ -112,6 +117,136 @@ export class EnvironmentBuilder {
 
     // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, streetlights
     this.buildRoadsideScenery(locations);
+
+    // 8. Night infrastructure: lit city windows, highway street lamps, coastal aarti glow (all dark by day)
+    this.buildNightAtmosphere(locations);
+  }
+
+  /**
+   * Register an emissive material whose intensity is ramped by setNightFactor().
+   * `base` is the emissiveIntensity reached at full night (nightFactor === 1).
+   */
+  private registerNightEmissive(mat: THREE.MeshStandardMaterial, base: number) {
+    this.nightEmissiveMaterials.push({ mat, base });
+  }
+
+  /**
+   * Self-contained night lighting pass. Adds — all starting fully dark —:
+   *  - ~8 emissive "lit window" boxes per city/village/monument zone (rajkot, ahmedabad, surat, vadodara, junagadh)
+   *  - street lamp posts + point lights along the highway verges (capped at 40)
+   *  - a warm "aarti" point light at the coastal temples (dwarka, somnath) that blooms at dusk
+   * setNightFactor() drives all of it each frame from GameWorld.animate().
+   */
+  private buildNightAtmosphere(locations: LocationData[]) {
+    const group = new THREE.Group();
+    const locMap = new Map(locations.map((l): [string, LocationData] => [l.id, l]));
+
+    // 1. Lit windows — one shared emissive material, silhouette lighting (not every pane)
+    const windowMat = new THREE.MeshStandardMaterial({ color: 0xfde68a, emissive: 0xfde68a, emissiveIntensity: 0 });
+    this.registerNightEmissive(windowMat, 0.9);
+    const windowGeo = new THREE.BoxGeometry(1.2, 1.6, 0.15);
+
+    for (const id of ['rajkot', 'ahmedabad', 'surat', 'vadodara', 'junagadh']) {
+      const loc = locMap.get(id);
+      if (!loc) continue;
+      const { x, z } = loc.worldPosition;
+      // Deterministic per-zone pseudo-random so the layout is stable across reloads
+      const seed = x * 0.017 + z * 0.031 + id.length;
+      const rand = (n: number) => {
+        const s = Math.sin(seed + n * 12.9898) * 43758.5453;
+        return s - Math.floor(s);
+      };
+      // Two implied building faces flanking the zone, 4 windows each (y 2..8)
+      for (let face = 0; face < 2; face++) {
+        const faceAngle = 0.7 + face * 2.5 + rand(face) * 0.5;
+        const bx = x + Math.cos(faceAngle) * 26;
+        const bz = z + Math.sin(faceAngle) * 26;
+        const yaw = Math.atan2(x - bx, z - bz); // face looks back toward the zone centre
+        for (let w = 0; w < 4; w++) {
+          const win = new THREE.Mesh(windowGeo, windowMat);
+          const lateral = (w % 2 === 0 ? -1 : 1) * (1.4 + rand(face * 10 + w) * 1.3);
+          const wy = 2 + Math.floor(w / 2) * 3 + rand(face * 20 + w) * 1.4;
+          win.position.set(
+            bx + Math.cos(faceAngle + Math.PI / 2) * lateral,
+            wy,
+            bz + Math.sin(faceAngle + Math.PI / 2) * lateral
+          );
+          win.rotation.y = yaw;
+          group.add(win);
+        }
+      }
+    }
+
+    // 2. Street lamps along the highway verges — walk the same segment data buildRoadsideScenery uses
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.6, metalness: 0.5 });
+    const lampHeadMat = new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0xfff3c4, emissiveIntensity: 0 });
+    this.registerNightEmissive(lampHeadMat, 1.0);
+    const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 5, 6);
+    const headGeo = new THREE.SphereGeometry(0.35, 8, 6);
+    const LAMP_CAP = 40;
+
+    const segments = RoadGeometryHelper.getSegments();
+    for (const seg of segments) {
+      if (this.streetLamps.length >= LAMP_CAP) break;
+      const { start, end, angle, distance, width } = seg;
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      const normX = Math.cos(angle);
+      const normZ = -Math.sin(angle);
+      const sideDist = width / 2 + 2.5;
+      const stepCount = Math.floor(distance / 50);
+
+      for (let s = 1; s < stepCount; s++) {
+        if (s % 4 !== 0) continue;
+        if (this.streetLamps.length >= LAMP_CAP) break;
+        const t = s / stepCount;
+        const cx = start.x + dx * t;
+        const cz = start.z + dz * t;
+        const side = s % 8 === 0 ? 1 : -1;
+        const lx = cx + normX * sideDist * side;
+        const lz = cz + normZ * sideDist * side;
+
+        const lamp = new THREE.Group();
+        lamp.position.set(lx, 0, lz);
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.y = 2.5;
+        const head = new THREE.Mesh(headGeo, lampHeadMat);
+        head.position.y = 5;
+        const light = new THREE.PointLight(0xfff3c4, 0, 14);
+        light.position.y = 5;
+        lamp.add(pole, head, light);
+        group.add(lamp);
+        this.streetLamps.push(light);
+      }
+    }
+
+    // 3. Coastal aarti glow — warm bloom at the seaside temples, peaks at dusk
+    for (const id of ['dwarka', 'somnath']) {
+      const loc = locMap.get(id);
+      if (!loc) continue;
+      const aarti = new THREE.PointLight(0xffa94d, 0, 40);
+      aarti.position.set(loc.worldPosition.x, 6, loc.worldPosition.z);
+      group.add(aarti);
+      this.aartiLights.push(aarti);
+    }
+
+    this.scene.add(group);
+  }
+
+  /**
+   * Ramp all night lighting from a single factor.
+   * @param f 0 = full day (everything dark), 1 = deep night. Aarti glow peaks near f ≈ 0.4 (dusk).
+   */
+  public setNightFactor(f: number) {
+    this.nightEmissiveMaterials.forEach(({ mat, base }) => {
+      mat.emissiveIntensity = f * base;
+    });
+    this.streetLamps.forEach((l) => {
+      l.intensity = f > 0.35 ? 3.5 : 0;
+    });
+    this.aartiLights.forEach((l) => {
+      l.intensity = THREE.MathUtils.clamp(1 - Math.abs(f - 0.4) * 3, 0, 1) * 4;
+    });
   }
 
   /**
