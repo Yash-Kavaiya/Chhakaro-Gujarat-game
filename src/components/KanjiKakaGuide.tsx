@@ -14,6 +14,7 @@ interface KanjiKakaGuideProps {
   isThinking: boolean;
   onAsk: (prompt: string, mode?: KakaMode) => void;
   onGenerateTrip: (request: string) => Promise<TripPlan>;
+  onStartTrip: (locationIds: string[]) => void;
 }
 
 const locName = (id: string): string =>
@@ -35,6 +36,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
   isThinking,
   onAsk,
   onGenerateTrip,
+  onStartTrip,
 }) => {
   const [inputText, setInputText] = useState('');
   const [activeMode, setActiveMode] = useState<KakaMode>('ask');
@@ -261,6 +263,17 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
                       </li>
                     ))}
                   </ol>
+                  {tripPlan.stops.length > 0 && (
+                    <button
+                      onClick={() => {
+                        onStartTrip(tripPlan.stops.map((s) => s.locationId));
+                        onClose();
+                      }}
+                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2 rounded-xl text-sm mt-1"
+                    >
+                      ચાલો! ({tripPlan.stops.length} સ્થળ)
+                    </button>
+                  )}
                 </div>
               )}
             </div>

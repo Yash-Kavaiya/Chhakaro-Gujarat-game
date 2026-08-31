@@ -124,22 +124,32 @@ export default function App() {
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
-  // Turn-by-turn nav. `navTarget` is the chosen destination (a mission drop or "માર્ગ બતાવો");
-  // `navLive` is the throttled per-frame route (distance + heading-relative angle + arrived).
+  // Turn-by-turn nav. `navTarget` is an *explicit* user destination ("માર્ગ બતાવો" / a voice
+  // command); `routeQueue` is a Kaka trip plan being driven stop by stop; a mission drop is
+  // the implicit third source. Precedence: explicit > route queue > mission.
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
+  const [routeQueue, setRouteQueue] = useState<string[]>([]);
   const [navLive, setNavLive] = useState<NavState | null>(null);
-  // world.onVehicleMove is registered once, so it reads navTarget through a ref.
+  // world.onVehicleMove is registered once, so it reads the derived target + queue via refs.
   const navTargetRef = useRef<NavTarget | null>(null);
+  const routeQueueRef = useRef<string[]>([]);
   const navTickRef = useRef(0);
   const navStartDistRef = useRef<number | null>(null);
   const navCuesRef = useRef({ start: false, half: false, near: false });
 
+  const effectiveNavTargetId: string | null =
+    navTarget?.locationId ?? routeQueue[0] ?? activeMission?.dropLocationId ?? null;
+
   useEffect(() => {
-    navTargetRef.current = navTarget;
+    routeQueueRef.current = routeQueue;
+  }, [routeQueue]);
+
+  useEffect(() => {
+    navTargetRef.current = effectiveNavTargetId ? { locationId: effectiveNavTargetId } : null;
     navStartDistRef.current = null;
     navCuesRef.current = { start: false, half: false, near: false };
-    if (!navTarget) setNavLive(null);
-  }, [navTarget]);
+    if (!effectiveNavTargetId) setNavLive(null);
+  }, [effectiveNavTargetId]);
 
   // Bounded ring of the player's last few actions — Kaka reacts to these. pushKakaEvent is
   // called from the reward paths; the tick state forces the kakaContext memo to refresh.
@@ -162,7 +172,7 @@ export default function App() {
         zoneRegion: currentLocation.region,
         nearbyLandmarkId: nearbyLandmark?.id ?? null,
         nearbyLandmarkUnvisited: nearbyLandmark
-          ? !visitedLocations.includes(nearbyLandmark.id) && navTarget?.locationId !== nearbyLandmark.id
+          ? !visitedLocations.includes(nearbyLandmark.id) && effectiveNavTargetId !== nearbyLandmark.id
           : false,
         visitedCount: visitedLocations.length,
         totalLocations: GUJARAT_LOCATIONS.length,
@@ -173,8 +183,8 @@ export default function App() {
             }
           : null,
         nav:
-          navTarget && navLive
-            ? { targetNameGujarati: locName(navTarget.locationId), distanceM: navLive.distanceM }
+          effectiveNavTargetId && navLive
+            ? { targetNameGujarati: locName(effectiveNavTargetId), distanceM: navLive.distanceM }
             : null,
         speedKmh: speed,
         vehiclePos: worldRef.current
@@ -191,7 +201,7 @@ export default function App() {
       nearbyLandmark,
       visitedLocations,
       activeMission,
-      navTarget,
+      effectiveNavTargetId,
       navLive,
       speed,
       vehicleHealth,
@@ -346,7 +356,23 @@ export default function App() {
       if (ns.arrived) {
         notify({ text: `પહોંચી ગયા! ${loc.nameGujarati}`, tone: 'reward' });
         checkMissionCompletion(loc.id);
-        setNavTarget(null);
+
+        // Advance a Kaka trip plan one stop.
+        const queue = routeQueueRef.current;
+        if (queue[0] === loc.id) {
+          const rest = queue.slice(1);
+          routeQueueRef.current = rest;
+          setRouteQueue(rest);
+          if (rest.length > 0) {
+            const nextLoc = GUJARAT_LOCATIONS.find((l) => l.id === rest[0]);
+            if (nextLoc) voiceQueue.enqueue(`આગળનું સ્થળ: ${nextLoc.nameGujarati}`);
+          } else {
+            notify({ text: 'સફર પૂરી! મોજ કરો.', tone: 'reward' });
+          }
+        }
+
+        // Clear an explicit destination once reached (queue / mission targets self-clear).
+        setNavTarget((cur) => (cur && cur.locationId === loc.id ? null : cur));
       }
     };
 
@@ -580,10 +606,9 @@ export default function App() {
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
 
-      // Clear passenger from vehicle + the nav arrow
+      // Clear passenger from vehicle; the mission-derived nav arrow drops with the mission.
       setActivePassenger(null);
       setActiveMission(null);
-      setNavTarget(null);
       if (worldRef.current) {
         worldRef.current.setPassenger(null);
       }
@@ -599,7 +624,8 @@ export default function App() {
     activeMissionRef.current = mission;
     activePassengerRef.current = passenger;
     if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
-    setNavTarget({ locationId: mission.dropLocationId });
+    // The nav arrow follows the mission drop implicitly (effectiveNavTargetId), unless the
+    // player has set an explicit destination or is mid trip-plan.
     const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
     notify({ text: `${mission.titleGujarati} — ચાલો ${dest} તરફ!`, tone: 'reward' });
   };
@@ -609,7 +635,6 @@ export default function App() {
     setActivePassenger(null);
     activeMissionRef.current = null;
     activePassengerRef.current = null;
-    setNavTarget(null);
     if (worldRef.current) worldRef.current.setPassenger(null);
     notify({ text: 'મિશન રદ થયું.', tone: 'info', speak: false });
   };
@@ -819,15 +844,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Turn-by-turn nav banner (mission drop, or "માર્ગ બતાવો" from the map) */}
-      {isGameStarted && navTarget && navLive && (
+      {/* Turn-by-turn nav banner — explicit destination, Kaka trip plan, or mission drop */}
+      {isGameStarted && effectiveNavTargetId && navLive && (
         <NavBanner
           targetName={
-            GUJARAT_LOCATIONS.find((l) => l.id === navTarget.locationId)?.nameGujarati ?? navTarget.locationId
+            GUJARAT_LOCATIONS.find((l) => l.id === effectiveNavTargetId)?.nameGujarati ?? effectiveNavTargetId
           }
           distanceM={navLive.distanceM}
           relativeDeg={navLive.relativeDeg}
-          onCancel={() => setNavTarget(null)}
+          onCancel={() => {
+            setNavTarget(null);
+            setRouteQueue([]);
+          }}
         />
       )}
 
@@ -841,7 +869,7 @@ export default function App() {
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
             worldRef={worldRef}
-            navTargetId={navTarget?.locationId ?? null}
+            navTargetId={effectiveNavTargetId}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
@@ -896,6 +924,12 @@ export default function App() {
         isThinking={kaka.isThinking}
         onAsk={kaka.askKaka}
         onGenerateTrip={kaka.generateTrip}
+        onStartTrip={(ids) => {
+          setNavTarget(null);
+          setRouteQueue(ids);
+          const first = GUJARAT_LOCATIONS.find((l) => l.id === ids[0]);
+          if (first) notify({ text: `સફર શરૂ! પહેલું સ્થળ: ${first.nameGujarati}`, tone: 'reward' });
+        }}
       />
 
       <GujaratMapModal
