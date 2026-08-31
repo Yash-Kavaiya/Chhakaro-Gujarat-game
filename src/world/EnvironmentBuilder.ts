@@ -6,6 +6,8 @@ import { RoadGeometryHelper } from './RoadGeometryHelper';
 import { RoadTextureGenerator } from './RoadTextureGenerator';
 import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
 import * as raniKiVav from './landmarks/raniKiVav';
+import * as somnath from './landmarks/somnath';
+import * as girGate from './landmarks/girGate';
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
@@ -500,10 +502,10 @@ export class EnvironmentBuilder {
         this.buildDwarkadhishTemple(landmarkGroup);
         break;
       case 'somnath':
-        this.buildSomnathTemple(landmarkGroup);
+        landmarkGroup.add(somnath.build());
         break;
       case 'gir':
-        this.buildGirForestZone(landmarkGroup);
+        landmarkGroup.add(girGate.build());
         break;
       case 'junagadh':
         this.buildGirnarMountain(landmarkGroup);
