@@ -58,6 +58,9 @@ export class GameWorld {
   public manualWeatherOverride: WeatherType | null = null;
   private manualOverrideUntilDistance = 0;
   private lastWeatherEvalAt = 0;
+  // True while setWeather() (a 'sunset'/'night' pick) is what put the clock in manual mode, so
+  // the next non-frozen weather can safely resume 'auto' without stomping a player's own freeze.
+  private weatherFrozeTheClock = false;
 
   // Transmission
   public transmissionMode: TransmissionMode = 'auto';
@@ -276,12 +279,19 @@ export class GameWorld {
     this.currentWeather = weather;
     this.weatherParamsCache = weatherParams(weather);
 
+    // 'sunset'/'night' freeze the time-of-day clock at that phase; any other weather resumes
+    // the live distance-based cycle — but ONLY if it was this method that froze it. Otherwise
+    // a manual 'night' pick followed by an autonomous rain/fog pick would strand the clock at
+    // night forever, while blindly resuming would cancel a player's own "Freeze Day" toggle.
     if (weather === 'sunset') {
       this.timeOfDaySystem.setManualPhase('sunset');
+      this.weatherFrozeTheClock = true;
     } else if (weather === 'night') {
       this.timeOfDaySystem.setManualPhase('night');
-    } else if (weather === 'sunny') {
+      this.weatherFrozeTheClock = true;
+    } else if (this.weatherFrozeTheClock) {
       this.timeOfDaySystem.setManualPhase('auto'); // Resume smooth distance based cycle
+      this.weatherFrozeTheClock = false;
     }
 
     if (this.rainParticles) {
@@ -405,7 +415,7 @@ export class GameWorld {
     // stretch before the WeatherDirector (which also knows these regions) resumes control —
     // otherwise the ~2 Hz re-pick would fight the teleport the same second.
     if (loc.id === 'saputara') this.setManualWeather('rain');
-    else if (loc.id === 'kutch') this.setManualWeather('sunset');
+    else if (loc.id === 'kutch') this.setManualWeather('fog');
     else if (loc.id === 'dwarka' || loc.id === 'somnath') soundManager.playTempleBell();
 
     if (this.onLocationChange) this.onLocationChange(loc);
@@ -803,20 +813,23 @@ export class GameWorld {
     const nowMs = performance.now();
     if (nowMs - this.lastWeatherEvalAt > 500) {
       this.lastWeatherEvalAt = nowMs;
+      const overrideActive = this.totalDistanceDriven < this.manualOverrideUntilDistance;
+      if (!overrideActive) this.manualWeatherOverride = null; // window elapsed — don't keep a stale pick
       const next = pickWeather({
         zoneId: this.currentLocation.id,
         phase: timeState.phase,
         distanceDriven: this.totalDistanceDriven,
-        manualOverride:
-          this.totalDistanceDriven < this.manualOverrideUntilDistance ? this.manualWeatherOverride : null,
+        manualOverride: overrideActive ? this.manualWeatherOverride : null,
       });
       if (next !== this.currentWeather) this.setWeather(next);
     }
 
-    // T7 Ruling: WeatherDirector owns scene.fog.density. TimeOfDaySystem set colour + its own
-    // density this same frame just above; this override wins (benign — same frame, no flicker).
+    // T7 Ruling: WeatherDirector owns scene.fog.density — but as a FLOOR, not a clamp.
+    // TimeOfDaySystem already wrote its computed density (the day→night haze ramp) to
+    // scene.fog.density this same frame just above; weather can only thicken it, so the
+    // night ramp survives while fog (0.011) / rain (0.005) still win when they're heavier.
     if (this.scene.fog instanceof THREE.FogExp2) {
-      this.scene.fog.density = this.weatherParamsCache.fogDensity;
+      this.scene.fog.density = Math.max(this.scene.fog.density, this.weatherParamsCache.fogDensity);
     }
 
     // Light up city windows / street lamps at night; bloom the coastal aarti glow at dusk

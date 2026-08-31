@@ -62,21 +62,23 @@ export function pickWeather(input: WeatherInput): WeatherType {
 
   const { zoneId, phase, distanceDriven } = input;
   const bucket = Math.floor(Math.max(0, distanceDriven) / BUCKET_METERS);
-  const roll = mulberry32((hashString(zoneId) ^ bucket) >>> 0)();
+  // Spread the bucket across all 32 bits (a bare `^ bucket` only flips the low bits between
+  // consecutive stretches) by mixing it with the golden-ratio odd constant before the XOR.
+  const roll = mulberry32((hashString(zoneId) ^ Math.imul(bucket, 0x9e3779b1)) >>> 0)();
 
   const lowLight = phase === 'dawn' || phase === 'sunrise' || phase === 'dusk' || phase === 'night';
 
   // Saputara — the Western Ghats hill station, Gujarat's wettest place. Rain-soaked most of
   // the time, wetter still outside broad daylight; the odd non-rain stretch is hill fog.
   if (zoneId === 'saputara') {
-    const rainChance = phase === 'day' ? 0.78 : 0.9;
+    const rainChance = phase === 'day' ? 0.85 : 0.92;
     return roll < rainChance ? 'rain' : 'fog';
   }
 
   // Kutch — the Great Rann. Dust haze reads with the fog visuals (+ a sideways wind push
   // supplied by weatherParams); clear stretches are just bright desert sun.
   if (zoneId === 'kutch') {
-    return roll < 0.82 ? 'fog' : 'sunny';
+    return roll < 0.9 ? 'fog' : 'sunny';
   }
 
   // The coast at first light — sea fog rolls over Dwarka / Somnath / Dandi at dawn & sunrise.
