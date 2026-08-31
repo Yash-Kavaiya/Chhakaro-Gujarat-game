@@ -208,7 +208,18 @@ Expected: FAIL (cannot resolve `./transmission`).
 
 - [ ] **Step 3: Implement `src/state/transmission.ts`.**
 
-Hysteresis: in `autoGear`, only upshift when `speed >= currentBand.max`, only downshift when `speed < currentBand.min`; otherwise keep `currentGear`. Negative speed → `'R'`. From `'R'`/`'N'` with `speed >= 1` → `'1'`.
+`autoGear(speed, currentGear)`:
+1. `speed < 0` → `'R'`.
+2. else if `currentGear` is `'N'` or `'R'` → `'1'` (an automatic is always "in drive" once moving forward or stopped — matches `autoGear(0, 'N') → '1'`).
+3. else (a forward gear) apply **one-step hysteresis** within `FORWARD_GEARS`: upshift one gear when `speed > GEAR_BANDS[currentGear].max` (strict — a speed exactly on a band edge keeps the current gear, per `autoGear(18, '1') → '1'`), downshift one gear when `speed < GEAR_BANDS[currentGear].min` (strict), otherwise keep `currentGear`. Never past `'1'` down or `'4'` up.
+
+`accelMultiplier(gear, speed, mode)`: base multipliers `{ '1': 1.6, '2': 1.15, '3': 0.85, '4': 0.6, 'R': 1.2, 'N': 0 }`. In `'manual'` only, if `speed < GEAR_BANDS[gear].min - 6` (far too high a gear for this speed) return `0.28` — the bogging value. `'auto'` never bogs. `'N'` always returns `0`.
+
+`gearMaxSpeed(gear)`: forward gears → `GEAR_BANDS[gear].max`; `'R'` → `16`; `'N'` → `0`.
+
+`shiftUp`/`shiftDown`: walk the fixed ladder `['R', 'N', '1', '2', '3', '4']`, clamped at both ends (no-op past the end).
+
+`canStartEngine(mode, gear, speed)`: `mode === 'auto'` → `speed` at a near-standstill (`Math.abs(speed) < 1`); `mode === 'manual'` → `(gear === 'N' || gear === 'R') && Math.abs(speed) < 1`.
 `accelMultiplier`: base `{ '1': 1.6, '2': 1.15, '3': 0.85, '4': 0.6, R: 1.2, N: 0, ... }`; in `manual`, if `speed < GEAR_BANDS[gear].min - 6` return `0.28` (bogging); `auto` skips the bog check.
 `gearMaxSpeed`: forward → `GEAR_BANDS[gear].max`; `'R'` → `16`; `'N'` → `0`.
 
