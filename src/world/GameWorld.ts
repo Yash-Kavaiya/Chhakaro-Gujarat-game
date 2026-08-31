@@ -99,6 +99,12 @@ export class GameWorld {
   public nearbyEncounter: RoadsideEncounter | null = null;
   public totalDistanceDriven: number = 0; // in meters
 
+  // Highway toll: once paid, the toll prompt stays suppressed until the odometer passes this
+  // stamp (payToll sets it to totalDistanceDriven + 300 m). tollBoomTweenT drives the boom
+  // raise (null = not tweening; 0..1 while raising; back to null and left up when done).
+  public tollPaidUntilDistance = 0;
+  private tollBoomTweenT: number | null = null;
+
   // Handlers / Callbacks
   public onLandmarkApproach?: (location: LocationData) => void;
   public onLocationChange?: (location: LocationData) => void;
@@ -107,6 +113,7 @@ export class GameWorld {
   public onTimeOfDayUpdate?: (timeState: TimeOfDayState) => void;
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
+  public onTollApproach?: (toll: { name: string } | null) => void;
   public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
   public onGearChange?: (gear: Gear) => void;
   public onWeatherChange?: (weather: WeatherType) => void;
@@ -280,6 +287,16 @@ export class GameWorld {
   public toggleHazardLights(): boolean {
     this.isHazardOn = !this.isHazardOn;
     return this.isHazardOn;
+  }
+
+  /**
+   * Pay the highway toll: kick off the boom-gate raise tween (~0.8 s, advanced in animate())
+   * and stamp a 300 m suppression window so checkFacilityProximity() stops re-prompting.
+   * The gate stays up for the rest of the M3 session — it never lowers again.
+   */
+  public payToll(): void {
+    this.tollBoomTweenT = 0;
+    this.tollPaidUntilDistance = this.totalDistanceDriven + 300;
   }
 
   public setWeather(weather: WeatherType) {
@@ -695,8 +712,19 @@ export class GameWorld {
 
     if (nearest !== this.nearbyFacility) {
       this.nearbyFacility = nearest;
-      if (this.onFacilityApproach) {
-        this.onFacilityApproach(nearest);
+
+      const isToll = nearest?.type === 'toll';
+      const tollDue = isToll && this.totalDistanceDriven >= this.tollPaidUntilDistance;
+
+      if (tollDue && nearest) {
+        // Toll owns the prompt while a fee is due — keep the generic petrol/garage pill hidden.
+        this.onTollApproach?.({ name: nearest.name });
+        this.onFacilityApproach?.(null);
+      } else {
+        // Not a toll, or the toll's already paid within the 300 m window — clear the toll
+        // prompt and route petrol/garage through the generic facility pill exactly as before.
+        this.onTollApproach?.(null);
+        this.onFacilityApproach?.(isToll ? null : nearest);
       }
     }
   }
@@ -882,6 +910,15 @@ export class GameWorld {
     // Update continuous environment animations (windmills, smoke, steam)
     if (this.environmentBuilder) {
       this.environmentBuilder.update(delta);
+    }
+
+    // Toll boom-gate raise: payToll() sets tollBoomTweenT to 0; lerp rotation.z 0 -> -PI/2
+    // over ~0.8 s, then leave it raised (tweenT back to null, gate stays open for the session).
+    const boomGate = this.environmentBuilder.tollBoomGates[0];
+    if (this.tollBoomTweenT !== null && boomGate) {
+      this.tollBoomTweenT = Math.min(this.tollBoomTweenT + delta / 0.8, 1);
+      boomGate.rotation.z = THREE.MathUtils.lerp(0, -Math.PI / 2, this.tollBoomTweenT);
+      if (this.tollBoomTweenT >= 1) this.tollBoomTweenT = null;
     }
 
     this.renderer.render(this.scene, this.camera);

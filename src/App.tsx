@@ -85,6 +85,7 @@ export default function App() {
   );
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
+  const [nearbyToll, setNearbyToll] = useState<{ name: string } | null>(null);
   const [nearbyEncounter, setNearbyEncounter] = useState<RoadsideEncounter | null>(null);
   const [activeEncounterModal, setActiveEncounterModal] = useState<RoadsideEncounter | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
@@ -424,6 +425,8 @@ export default function App() {
     world.onFacilityApproach = (facility) => {
       setNearbyFacility(facility ? { ...facility, distance: 10 } : null);
     };
+
+    world.onTollApproach = (t) => setNearbyToll(t);
 
     world.onEncounterApproach = (encounter) => {
       setNearbyEncounter(encounter);
@@ -1042,6 +1045,32 @@ export default function App() {
             setRouteQueue([]);
           }}
         />
+      )}
+
+      {/* Highway toll plaza prompt — pay ₹30, the boom gate rises, receipt notify, then it
+          stays quiet for 300 m. Matches the facility-pill look; fixed near the bottom-centre. */}
+      {isGameStarted && nearbyToll && (
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md bg-slate-950/90 border-2 border-amber-400 p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-4 animate-bounce pointer-events-auto">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-3xl shrink-0">🛣️</span>
+            <div className="min-w-0">
+              <h4 className="font-black text-amber-300 text-sm truncate">{nearbyToll.name}</h4>
+              <p className="text-xs text-slate-300">ટોલ ટેક્સ ₹૩૦ — ભરો એટલે બૂમ ગેટ ખૂલશે</p>
+            </div>
+          </div>
+          <button
+            disabled={coins < 30}
+            onClick={() => {
+              worldRef.current?.payToll();
+              setCoins((c) => c - 30);
+              setNearbyToll(null);
+              notify({ text: '🧾 ટોલ ₹૩૦ ભરાયો — રસીદ મળી. સફર ચાલુ!', tone: 'info' });
+            }}
+            className="py-2 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-500 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg shrink-0"
+          >
+            {coins < 30 ? 'પૂરતા સિક્કા નથી' : '₹૩૦ ટોલ ભરો'}
+          </button>
+        </div>
       )}
 
       {/* Primary In-Game HUD */}

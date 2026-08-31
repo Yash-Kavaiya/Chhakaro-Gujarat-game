@@ -48,6 +48,10 @@ export class EnvironmentBuilder {
   public animatableSmokePuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
   public animatableSteamPuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
 
+  // Toll-plaza boom barriers — pivot Groups whose origin is the hinge; start horizontal
+  // (rotation.z = 0). GameWorld.payToll() tweens rotation.z to -Math.PI/2 to raise one.
+  public tollBoomGates: THREE.Object3D[] = [];
+
   // Night atmosphere: lit windows, street lamps & coastal aarti glow — driven by setNightFactor()
   private nightEmissiveMaterials: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
   private streetLamps: THREE.PointLight[] = [];
@@ -2939,6 +2943,26 @@ export class EnvironmentBuilder {
     });
 
     this.createBoard(toll, '🛣️ રાષ્ટ્રીય ધોરીમાર્ગ ટોલ પ્લાઝા (FASTag Lane)', 0, 8.8, 2.1, 20, 1.4);
+
+    // FASTag-lane boom barrier. Hinged from a Group whose origin is the pivot; the pole
+    // extends toward the lane centre (−x) so rotation.z = −Math.PI/2 swings it straight up.
+    // Starts horizontal (rotation.z = 0) — GameWorld.payToll() drives the raise tween.
+    const boomPivot = new THREE.Group();
+    boomPivot.position.set(5.5, 1.4, 2.3);
+    const boomPole = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 0.16, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.5 }),
+    );
+    boomPole.position.set(-2, 0, 0); // one end at the pivot, the other reaching across the lane
+    boomPivot.add(boomPole);
+    const boomTip = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.18, 0.18),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 }),
+    );
+    boomTip.position.set(-3.5, 0, 0);
+    boomPivot.add(boomTip);
+    toll.add(boomPivot);
+    this.tollBoomGates.push(boomPivot);
 
     parent.add(toll);
   }
