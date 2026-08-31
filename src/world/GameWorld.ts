@@ -11,6 +11,7 @@ import { soundManager } from '../audio/SoundManager';
 import {
   Gear,
   autoGear,
+  autoGearUnderThrottle,
   accelMultiplier,
   gearMaxSpeed,
   shiftUp as shiftGearUp,
@@ -303,27 +304,31 @@ export class GameWorld {
     soundManager.startEngine();
   }
 
+  private emitGear() {
+    this.onGearChange?.(this.currentGear);
+  }
+
   /** Switch gearbox behaviour. In auto we immediately resolve the gear for the current speed. */
   public setTransmissionMode(mode: TransmissionMode) {
     this.transmissionMode = mode;
     if (mode === 'auto') {
       this.currentGear = autoGear(this.speed, this.currentGear);
     }
-    this.onGearChange?.(this.currentGear);
+    this.emitGear();
   }
 
   /** Manual shift up one gear on the R,N,1..4 ladder (no-op in auto). */
   public shiftUp() {
     if (this.transmissionMode !== 'manual') return;
     this.currentGear = shiftGearUp(this.currentGear);
-    this.onGearChange?.(this.currentGear);
+    this.emitGear();
   }
 
   /** Manual shift down one gear on the R,N,1..4 ladder (no-op in auto). */
   public shiftDown() {
     if (this.transmissionMode !== 'manual') return;
     this.currentGear = shiftGearDown(this.currentGear);
-    this.onGearChange?.(this.currentGear);
+    this.emitGear();
   }
 
   /** Start / stop the engine, honouring the manual "standstill in N or R" rule. */
@@ -478,17 +483,19 @@ export class GameWorld {
 
     // Transmission — gear-aware torque + per-gear speed ceiling.
     // autoGear() upshifts strictly above the band max while the clamp below pins speed
-    // *exactly* at that max, so under full throttle we feed autoGear the speed the car is
-    // pushing toward (+1) — otherwise an automatic deadlocks on the gear-1 ceiling (18 km/h).
+    // *exactly* at that max, so under throttle we resolve the gear against the pre-clamp
+    // next-frame speed (`acceleration * delta`, the very step the accel branch applies) —
+    // otherwise an automatic deadlocks on the gear-1 ceiling (18 km/h).
     if (this.transmissionMode === 'auto') {
-      const demandSpeed = this.controls.forward ? this.speed + 1 : this.speed;
-      this.currentGear = autoGear(demandSpeed, this.currentGear);
+      this.currentGear = autoGearUnderThrottle(
+        this.speed, this.currentGear, this.controls.forward, acceleration * delta,
+      );
     } // manual: this.currentGear is set by shiftUp/shiftDown
     const gearMult = accelMultiplier(this.currentGear, Math.abs(this.speed), this.transmissionMode);
     acceleration *= gearMult;
     maxForwardSpeed = Math.min(maxForwardSpeed, gearMaxSpeed(this.currentGear));
     if (this.currentGear === 'N') { acceleration = 0; }
-    this.onGearChange?.(this.currentGear);
+    this.emitGear();
 
     // 1. Acceleration & Braking
     const isAccelerating = this.controls.forward;

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Compass, Zap } from 'lucide-react';
 import { LocationData } from '../types';
+import type { TransmissionMode } from '../types';
 
 interface SpeedometerGaugeProps {
   speed: number;
@@ -9,7 +10,7 @@ interface SpeedometerGaugeProps {
   currentLocation: LocationData;
   isHeadlightOn?: boolean;
   gear: string;
-  transmissionMode: 'auto' | 'manual';
+  transmissionMode: TransmissionMode;
 }
 
 export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
@@ -183,7 +184,7 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
           {/* Transmission Mode Badge (A = automatic, M = manual) */}
           <div
             className="px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-600 text-slate-200 text-[10px] sm:text-xs font-black font-mono shadow-sm"
-            title={transmissionMode === 'manual' ? 'Manual gearbox' : 'Automatic gearbox'}
+            title={transmissionMode === 'manual' ? 'મેન્યુઅલ ગિયરબોક્સ' : 'ઓટોમેટિક ગિયરબોક્સ'}
           >
             {transmissionMode === 'manual' ? 'M' : 'A'}
           </div>

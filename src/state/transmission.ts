@@ -43,6 +43,14 @@ export function autoGear(speedKmh: number, currentGear: Gear): Gear {
   return currentGear;
 }
 
+/** Auto gear selection that looks ahead to the speed the throttle is pushing toward, so an
+ *  automatic never stalls at a band edge where the gear's own cap equals the upshift point. */
+export function autoGearUnderThrottle(
+  speedKmh: number, gear: Gear, throttleHeld: boolean, accelPerFrame: number,
+): Gear {
+  return autoGear(throttleHeld ? speedKmh + accelPerFrame : speedKmh, gear);
+}
+
 /** Torque multiplier applied to base acceleration for the engaged gear.
  *  Lower gears pull harder; 'N'/'R' return their own values. Manual mismatch (too-high gear
  *  at low rpm) returns a "bogging" multiplier < 0.35 so the player feels the wrong gear. */

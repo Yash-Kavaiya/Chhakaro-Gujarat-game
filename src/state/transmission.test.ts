@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  autoGear, accelMultiplier, gearMaxSpeed, shiftUp, shiftDown, canStartEngine, GEAR_BANDS,
+  autoGear, autoGearUnderThrottle, accelMultiplier, gearMaxSpeed,
+  shiftUp, shiftDown, canStartEngine, GEAR_BANDS,
 } from './transmission';
 
 describe('autoGear', () => {
@@ -26,6 +27,23 @@ describe('autoGear', () => {
   it('reports R only from a negative speed, never from auto upshift', () => {
     expect(autoGear(-5, 'N')).toBe('R');
     expect(autoGear(-5, '2')).toBe('R');
+  });
+});
+
+describe('autoGearUnderThrottle', () => {
+  it('breaks the band-edge deadlock — upshifts when the throttle is pushing past the cap', () => {
+    // speed pinned exactly at gear 1's cap (== its strict upshift point); under throttle the
+    // next-frame speed clears it, so the automatic climbs instead of stalling at 18 km/h.
+    expect(autoGearUnderThrottle(18, '1', true, 0.4)).toBe('2');
+  });
+  it('holds gear when coasting exactly on the band edge', () => {
+    expect(autoGearUnderThrottle(18, '1', false, 0.4)).toBe('1');
+  });
+  it('does not hunt — a gear comfortably inside its band stays put under throttle', () => {
+    expect(autoGearUnderThrottle(30, '3', true, 0.4)).toBe('3');
+  });
+  it('still downshifts under throttle when the speed has fallen through the band floor', () => {
+    expect(autoGearUnderThrottle(10, '2', true, 0.4)).toBe('1');
   });
 });
 
