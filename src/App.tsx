@@ -1204,6 +1204,11 @@ export default function App() {
         onClose={() => setIsPhotoModeOpen(false)}
         currentLocation={currentLocation}
         canvasRef={canvasRef}
+        visitedCount={visitedLocations.length}
+        totalCount={GUJARAT_LOCATIONS.length}
+        totalKm={totalKm}
+        phaseGujarati={timeOfDay?.phaseGujarati ?? ''}
+        routeVisitedIds={visitedLocations}
       />
 
       <PassportModal
