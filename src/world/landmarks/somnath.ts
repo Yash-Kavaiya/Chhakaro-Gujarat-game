@@ -82,10 +82,12 @@ export function build(): THREE.Group {
   shoreWall.receiveShadow = true;
   g.add(shoreWall);
 
-  // --- sea: a large thin semi-transparent plane extending toward +Z (the road side) ---
+  // --- sea: a large thin semi-transparent plane extending toward +Z (the road side).
+  //     y = 0.08 sits just above the zone terrain plane (y = -0.05) so it actually renders —
+  //     matches the codebase water convention (salt flat y = 0.05, old Somnath sea y = 0.1). ---
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), SEA);
   sea.rotation.x = -Math.PI / 2;
-  sea.position.set(0, -0.1, 86);
+  sea.position.set(0, 0.08, 86);
   sea.receiveShadow = true;
   g.add(sea);
 

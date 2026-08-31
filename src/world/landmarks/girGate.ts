@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
 // Sasan Gir safari check-post + forest canopy. The caller positions the group at the zone
-// origin; the road runs along Z, +Z is the approach side, the canopy fills −Z (behind the gate).
+// origin; +Z is the open/clearing side (toward the road), and the canopy wraps the other ~260°
+// (both ±X flanks and −Z behind) so the forest reads from every approach into the zone.
 const GATE_STONE = new THREE.MeshStandardMaterial({ color: 0x8c857a, roughness: 0.9, metalness: 0 });
 const TIMBER = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.85, metalness: 0 });
 const PLAQUE = new THREE.MeshStandardMaterial({ color: 0x24603a, roughness: 0.6, metalness: 0 });
@@ -13,21 +14,23 @@ const HUT_WALL = new THREE.MeshStandardMaterial({ color: 0xc9a86a, roughness: 0.
 const TRUNK_GEO = new THREE.CylinderGeometry(0.35, 0.5, 4, 6);
 
 /**
- * Adds ~60 deterministic tree clumps in a band behind the gate (−Z). Seeded loop, no Math.random,
- * so the forest wall is identical every run. Clumps that land on the road corridor are nudged aside.
+ * Adds ~60 deterministic tree clumps in a partial ring around the gate. The seeded loop sweeps a
+ * ~260° arc from +140° through −Z round to +40°, so it wraps both ±X flanks and the −Z rear while
+ * leaving a ~100° gap open toward +Z (the road / clearing). Radius stays ≥ 22 so the gate apron is
+ * clear. No Math.random — identical every run.
  */
 function scatterCanopy(g: THREE.Group) {
   for (let i = 0; i < 60; i++) {
-    const angle = i * 2.4;
-    const r = 30 + (i % 7) * 4;
-    let x = Math.cos(angle) * r;
-    const z = -20 - Math.abs(Math.sin(angle)) * r;
-    if (Math.abs(x) < 8) x += (x >= 0 ? 1 : -1) * 8; // keep the road corridor readable
+    const t = i / 60;
+    const theta = Math.PI * (140 / 180 + t * (260 / 180)); // 140° → 400° (= 40°); skips the +Z wedge
+    const r = 22 + (i % 7) * 5 + (i % 3) * 3;               // 22 → 58 deterministic depth spread
+    const x = Math.cos(theta) * r;
+    const z = Math.sin(theta) * r;
     const s = 1 + (i % 5) * 0.16;
 
     const clump = new THREE.Group();
     clump.position.set(x, 0, z);
-    clump.rotation.y = angle;
+    clump.rotation.y = theta;
 
     const trunk = new THREE.Mesh(TRUNK_GEO, TRUNK);
     trunk.position.y = 2;
