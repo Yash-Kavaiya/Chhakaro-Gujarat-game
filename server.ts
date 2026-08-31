@@ -3,6 +3,12 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+import { buildLocalTrip } from './src/state/tripPlanner';
+import { GUJARAT_LOCATIONS } from './src/data/locations';
+
+const VALID_LOCATION_IDS = new Set(GUJARAT_LOCATIONS.map((l) => l.id));
+const TRIP_MAX_STOPS = 6;
+const TRIP_MIN_STOPS = 3;
 
 dotenv.config();
 
@@ -267,6 +273,94 @@ app.post('/api/gemini/guide', async (req, res) => {
   } catch (error: any) {
     console.error('Gemini guide unexpected handler error:', error);
     return res.json(localFallback());
+  }
+});
+
+// AI trip generator. body { request: string, context: KakaContext } ->
+// { introGujarati, stops: [{ locationId, reasonGujarati }] }. Every returned locationId is
+// validated against the 16 real locations; anything else falls back to the local planner.
+app.post('/api/gemini/trip', async (req, res) => {
+  const { request, context } = req.body || {};
+  const requestText = typeof request === 'string' ? request : '';
+  const fromId =
+    (context && context.zone && typeof context.zone.id === 'string' && context.zone.id) || 'rajkot';
+  const serveLocal = () => res.json(buildLocalTrip(requestText, fromId));
+
+  try {
+    const ai = getAI();
+    if (!ai) return serveLocal();
+
+    const idList = GUJARAT_LOCATIONS.map((l) => `${l.id} = ${l.nameGujarati}`).join('\n');
+    const zoneLine = context?.zone?.nameGujarati ? `યુઝર અત્યારે ${context.zone.nameGujarati} માં છે.` : '';
+
+    const systemInstruction = `
+તમે "કાનજી કાકો" — ગુજરાતના છકડા ટૂર ગાઈડ. યુઝરની વિનંતી પ્રમાણે એક ક્રમબદ્ધ પ્રવાસ બનાવો.
+ફક્ત નીચેની યાદીના locationId જ વાપરો, બીજું કોઈ નામ નહીં:
+${idList}
+
+નિયમો:
+- ${TRIP_MIN_STOPS} થી ${TRIP_MAX_STOPS} સ્થળ, યુઝર જ્યાં છે ત્યાંથી ભૌગોલિક રીતે સમજદાર ક્રમમાં.
+- દરેક સ્થળનું એક ટૂંકું ગુજરાતી કારણ (reasonGujarati).
+- ચકાસી શકાય તેવી હકીકત જ; ખોટો ઇતિહાસ નહીં.
+- ફક્ત આ JSON આપો:
+{ "introGujarati": "...", "stops": [ { "locationId": "...", "reasonGujarati": "..." } ] }
+`;
+
+    const userMessage = `${zoneLine}\nવિનંતી: "${requestText || 'ગુજરાતની એક મસ્ત સફર'}"`;
+
+    const candidateModels = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+    let rawText = '';
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: userMessage,
+          config: { systemInstruction, responseMimeType: 'application/json' },
+        });
+        rawText = response.text || '';
+        if (rawText) break;
+      } catch (err: any) {
+        console.warn(`Trip model ${modelName} failed (attempting fallback):`, err?.message || err);
+      }
+    }
+
+    if (rawText) {
+      try {
+        const parsed = JSON.parse(rawText);
+        const seen = new Set<string>();
+        const stops = (Array.isArray(parsed?.stops) ? parsed.stops : [])
+          .filter((s: any) => s && VALID_LOCATION_IDS.has(s.locationId) && !seen.has(s.locationId))
+          .map((s: any) => {
+            seen.add(s.locationId);
+            return {
+              locationId: s.locationId as string,
+              reasonGujarati:
+                typeof s.reasonGujarati === 'string' && s.reasonGujarati.trim()
+                  ? s.reasonGujarati.trim()
+                  : 'આ સફરમાં જોવા જેવું સ્થળ.',
+            };
+          })
+          .slice(0, TRIP_MAX_STOPS);
+
+        if (stops.length >= TRIP_MIN_STOPS) {
+          return res.json({
+            introGujarati:
+              typeof parsed.introGujarati === 'string' && parsed.introGujarati.trim()
+                ? parsed.introGujarati.trim()
+                : 'ચાલો, આ રહી તમારી સફર!',
+            stops,
+          });
+        }
+      } catch {
+        // fall through to the local planner
+      }
+    }
+
+    console.warn('Trip generation empty/invalid, serving local planner');
+    return serveLocal();
+  } catch (err: any) {
+    console.error('Trip endpoint unexpected error:', err);
+    return serveLocal();
   }
 });
 
