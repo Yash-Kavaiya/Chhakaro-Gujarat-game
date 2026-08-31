@@ -17,6 +17,7 @@ import {
   shiftUp as shiftGearUp,
   shiftDown as shiftGearDown,
   canStartEngine,
+  FORWARD_GEARS,
 } from '../state/transmission';
 
 export class GameWorld {
@@ -331,7 +332,9 @@ export class GameWorld {
     this.emitGear();
   }
 
-  /** Start / stop the engine, honouring the manual "standstill in N or R" rule. */
+  /** Start / stop the engine, honouring the manual "standstill in N or R" rule.
+   *  Returns the resulting engine state. A refused start leaves the engine off and gives a
+   *  single horn toot as the "won't start" cue. */
   public toggleEngine(): boolean {
     if (this.isEngineOn) {
       this.isEngineOn = false;
@@ -339,10 +342,10 @@ export class GameWorld {
       return false;
     }
     if (!canStartEngine(this.transmissionMode, this.currentGear, this.speed)) {
+      soundManager.playHorn(1);
       return false;
     }
-    this.isEngineOn = true;
-    soundManager.startEngine();
+    this.startVehicleEngine();
     return true;
   }
 
@@ -498,8 +501,13 @@ export class GameWorld {
     this.emitGear();
 
     // 1. Acceleration & Braking
+    // Manual mode only pulls forward with a forward gear engaged ('1'..'4'); throttle in
+    // 'N'/'R' just coasts. Reverse-from-standstill is already gated to R (auto is unaffected),
+    // and the `speed > 1` brake sub-case stays shared across every mode.
+    const forwardGearEngaged =
+      this.transmissionMode !== 'manual' || FORWARD_GEARS.includes(this.currentGear);
     const isAccelerating = this.controls.forward;
-    if (this.controls.forward) {
+    if (this.controls.forward && forwardGearEngaged) {
       this.speed = Math.min(this.speed + acceleration * delta, maxForwardSpeed);
     } else if (this.controls.backward) {
       if (this.speed > 1) {

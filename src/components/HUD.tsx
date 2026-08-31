@@ -88,6 +88,10 @@ interface HUDProps {
   onRefuel?: () => void;
   onRepair?: () => void;
   onInteractEncounter?: (encounter: RoadsideEncounter) => void;
+  expertMode?: boolean;
+  onShiftUp?: () => void;
+  onShiftDown?: () => void;
+  onToggleEngine?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -139,6 +143,10 @@ export const HUD: React.FC<HUDProps> = ({
   onRefuel,
   onRepair,
   onInteractEncounter,
+  expertMode,
+  onShiftUp,
+  onShiftDown,
+  onToggleEngine,
 }) => {
   const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
   const timeMenuRef = useRef<HTMLDivElement>(null);
@@ -432,6 +440,39 @@ export const HUD: React.FC<HUDProps> = ({
               isHeadlightOn={isHeadlightOn}
             />
           </div>
+
+          {/* Expert-mode manual shift + engine start/stop controls */}
+          {expertMode && (
+            <div className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-amber-500/40 shadow-lg">
+              <button
+                id="hud-shift-down-btn"
+                onClick={onShiftDown}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-300 text-xs font-black transition-all active:scale-95"
+                title="ગિયર ડાઉન (Q key)"
+              >
+                <span>▼</span>
+                <span>ગિયર</span>
+              </button>
+              <button
+                id="hud-shift-up-btn"
+                onClick={onShiftUp}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-300 text-xs font-black transition-all active:scale-95"
+                title="ગિયર અપ (E key)"
+              >
+                <span>▲</span>
+                <span>ગિયર</span>
+              </button>
+              <button
+                id="hud-engine-btn"
+                onClick={onToggleEngine}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-emerald-300 text-xs font-black transition-all active:scale-95"
+                title="એન્જિન ચાલુ / બંધ (I key)"
+              >
+                <span>🔑</span>
+                <span>ચાલુ/બંધ</span>
+              </button>
+            </div>
+          )}
 
           {/* Top Control Action Buttons */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 shadow-lg">

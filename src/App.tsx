@@ -64,10 +64,14 @@ export default function App() {
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
   const [gear, setGear] = useState<string>('N');
-  // Persisted gearbox prefs. Task 1 only reads these; the Expert toggle + manual-shift keys
-  // that write them land in M3 Task 2.
-  const [transmissionMode] = useState<TransmissionMode>(initial.transmissionMode);
-  const [expertMode] = useState(initial.expertMode);
+  // Persisted gearbox prefs. The Expert toggle (StartScreen + a future in-game control) drives
+  // both: Expert on ⇒ manual gearbox, off ⇒ automatic. Persisted via the saveProgress payload.
+  const [transmissionMode, setTransmissionMode] = useState<TransmissionMode>(initial.transmissionMode);
+  const [expertMode, setExpertMode] = useState(initial.expertMode);
+  // handleGlobalKeys is registered once inside the world-init effect; it reads the live Expert
+  // flag through this ref rather than forcing that effect to re-run on every toggle.
+  const expertModeRef = useRef(expertMode);
+  expertModeRef.current = expertMode;
   const [currentLocation, setCurrentLocation] = useState<LocationData>(
     GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
   );
@@ -318,7 +322,9 @@ export default function App() {
   useEffect(() => {
     if (!isGameStarted || !containerRef.current) return;
 
-    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000, initial.transmissionMode);
+    // transmissionMode (not initial.*) so an Expert opt-in made on the StartScreen is already
+    // live when the world spins up; mid-game toggles go through world.setTransmissionMode.
+    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000, transmissionMode);
     worldRef.current = world;
     canvasRef.current = world.canvas;
 
@@ -441,12 +447,22 @@ export default function App() {
             ttlMs: 3000,
           });
         }
+      } else if (key === 'q') {
+        // Expert-only: shift down one gear.
+        if (!expertModeRef.current) return;
+        worldRef.current?.shiftDown();
       } else if (key === 'e') {
-        if (world.nearbyEncounter) {
+        // Expert mode repurposes E as shift-up; otherwise E is the landmark/encounter action.
+        if (expertModeRef.current) {
+          worldRef.current?.shiftUp();
+        } else if (world.nearbyEncounter) {
           setActiveEncounterModal(world.nearbyEncounter);
         } else if (world.nearbyLandmark) {
           setInspectingLandmark(world.nearbyLandmark);
         }
+      } else if (key === 'i') {
+        // Engine start/stop is allowed in either mode (GameWorld enforces the standstill rule).
+        worldRef.current?.toggleEngine();
       }
     };
 
@@ -746,6 +762,37 @@ export default function App() {
     }
   };
 
+  // Expert mode ⇔ manual gearbox. Flipping it also switches the transmission (and tells the
+  // running world), so the gauge badge and shift behaviour follow the one toggle. Both fields
+  // ride the existing saveProgress payload.
+  const handleToggleExpertMode = () => {
+    const next = !expertMode;
+    const mode: TransmissionMode = next ? 'manual' : 'auto';
+    setExpertMode(next);
+    setTransmissionMode(mode);
+    worldRef.current?.setTransmissionMode(mode);
+  };
+
+  const handleShiftUp = () => worldRef.current?.shiftUp();
+  const handleShiftDown = () => worldRef.current?.shiftDown();
+
+  const handleToggleEngine = () => {
+    const world = worldRef.current;
+    if (!world) return;
+    const wasOn = world.isEngineOn;
+    const nowOn = world.toggleEngine();
+    if (!wasOn && !nowOn) {
+      notify({
+        text: 'એન્જિન ચાલુ કરવા છકડો ઊભો રાખો અને ગિયર N કે R માં નાખો',
+        tone: 'info',
+        speak: false,
+        ttlMs: 3500,
+      });
+    } else {
+      notify({ text: nowOn ? '🔑 એન્જિન ચાલુ' : '🔑 એન્જિન બંધ', tone: 'info', speak: false, ttlMs: 2500 });
+    }
+  };
+
   const handleChangeCamera = () => {
     if (worldRef.current) {
       const modes: CameraMode[] = ['chase', 'hood', 'passenger', 'cinematic', 'drone'];
@@ -919,6 +966,8 @@ export default function App() {
           hasSave={hasSave}
           lastLocationName={hasSave ? initialLocation.nameGujarati : null}
           onResume={handleResume}
+          expertMode={expertMode}
+          onToggleExpertMode={handleToggleExpertMode}
         />
       )}
 
@@ -1014,12 +1063,18 @@ export default function App() {
             onRefuel={handleRefuel}
             onRepair={handleRepair}
             onInteractEncounter={(enc) => setActiveEncounterModal(enc)}
+            expertMode={expertMode}
+            onShiftUp={handleShiftUp}
+            onShiftDown={handleShiftDown}
+            onToggleEngine={handleToggleEngine}
           />
 
           {/* On-screen Mobile Pedals & Steer Controls */}
           <MobileControls
             onControlChange={handleMobileControl}
             onChangeCamera={handleChangeCamera}
+            expertMode={expertMode}
+            onShift={(dir) => (dir === 'up' ? handleShiftUp() : handleShiftDown())}
           />
         </>
       )}
