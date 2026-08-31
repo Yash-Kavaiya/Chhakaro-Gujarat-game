@@ -8,6 +8,8 @@ import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/high
 import * as raniKiVav from './landmarks/raniKiVav';
 import * as somnath from './landmarks/somnath';
 import * as girGate from './landmarks/girGate';
+import * as whiteRann from './landmarks/whiteRann';
+import * as statueOfUnity from './landmarks/statueOfUnity';
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
@@ -511,10 +513,10 @@ export class EnvironmentBuilder {
         this.buildGirnarMountain(landmarkGroup);
         break;
       case 'kutch':
-        this.buildWhiteRann(landmarkGroup);
+        landmarkGroup.add(whiteRann.build());
         break;
       case 'statue_of_unity':
-        this.buildStatueOfUnity(landmarkGroup);
+        landmarkGroup.add(statueOfUnity.build());
         break;
       case 'saputara':
         this.buildSaputaraGhats(landmarkGroup);
