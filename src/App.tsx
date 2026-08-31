@@ -37,7 +37,7 @@ import { GUJARAT_MISSIONS } from './data/missions';
 import { GUJARATI_SOUVENIRS } from './data/souvenirs';
 import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
-import { voiceQueue } from './audio/VoiceQueue';
+import { voiceQueue, setKakaMutedGetter } from './audio/VoiceQueue';
 import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
@@ -47,7 +47,7 @@ import { nearestUnvisited } from './state/exploration';
 import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 import { evaluateKakaTriggers } from './state/kakaTriggers';
 import { useKakaCompanion } from './state/useKakaCompanion';
-import { VoiceIntent } from './state/voiceCommands';
+import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
 import { radioAudioEngine } from './audio/RadioAudioEngine';
 
 export default function App() {
@@ -215,8 +215,10 @@ export default function App() {
 
   // The last line Kaka said out loud — chat reply or proactive trigger — for the HUD strip.
   const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
-  // "કાકા શાંત" — silences Kaka's proactive lines. Task 10 adds the HUD toggle + persistence.
-  const [kakaMuted, setKakaMuted] = useState(false);
+  // "કાકા શાંત" — silences Kaka's proactive/spoken lines. Persisted (schema v3).
+  const [kakaMuted, setKakaMuted] = useState(initial.kakaMuted);
+  const kakaMutedRef = useRef(kakaMuted);
+  kakaMutedRef.current = kakaMuted;
 
   // The companion controller reads the context through a ref accessor so its callbacks stay
   // stable while every request still carries the freshest snapshot.
@@ -228,6 +230,10 @@ export default function App() {
   useEffect(() => {
     if (kaka.lastReply) setLastKakaNarration(kaka.lastReply);
   }, [kaka.lastReply]);
+
+  useEffect(() => {
+    setKakaMutedGetter(() => kakaMutedRef.current);
+  }, []);
 
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
@@ -514,6 +520,7 @@ export default function App() {
       totalKm,
       lastLocationId: currentLocation.id,
       stampMeta,
+      kakaMuted,
     });
   }, [
     coins,
@@ -528,6 +535,7 @@ export default function App() {
     totalKm,
     currentLocation,
     stampMeta,
+    kakaMuted,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -821,6 +829,54 @@ export default function App() {
     }
   };
 
+  const handleToggleKakaMuted = () => {
+    setKakaMuted((m) => {
+      const next = !m;
+      if (next) voiceQueue.clear();
+      return next;
+    });
+  };
+
+  // The HUD Kaka-strip mic: same scoped-command-or-question routing as the modal, but it
+  // works without opening the chat. A lazily-created single recognition instance.
+  const [kakaMicActive, setKakaMicActive] = useState(false);
+  const quickRecRef = useRef<any>(null);
+  const handleKakaMic = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      notify({ text: 'તમારા બ્રાઉઝરમાં માઇક્રોફોન સપોર્ટેડ નથી.', tone: 'warn', speak: false });
+      return;
+    }
+    if (!quickRecRef.current) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'gu-IN';
+      rec.onresult = (e: any) => {
+        const transcript = e.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          const intent = matchVoiceIntent(transcript, GUJARAT_LOCATIONS);
+          if (intent.kind !== 'unknown') handleVoiceIntent(intent);
+          else {
+            setIsKakaOpen(true);
+            kaka.askKaka(transcript);
+          }
+        }
+        setKakaMicActive(false);
+      };
+      rec.onerror = () => setKakaMicActive(false);
+      rec.onend = () => setKakaMicActive(false);
+      quickRecRef.current = rec;
+    }
+    try {
+      quickRecRef.current.start();
+      setKakaMicActive(true);
+    } catch {
+      setKakaMicActive(false);
+    }
+  };
+
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
     setCustomization(custom);
     if (worldRef.current) {
@@ -931,6 +987,11 @@ export default function App() {
             onOpenFood={() => setIsFoodOpen(true)}
             onOpenGarage={() => setIsGarageOpen(true)}
             onOpenKaka={() => setIsKakaOpen(true)}
+            lastKakaLine={lastKakaNarration}
+            kakaMuted={kakaMuted}
+            kakaMicActive={kakaMicActive}
+            onToggleKakaMuted={handleToggleKakaMuted}
+            onKakaMic={handleKakaMic}
             onOpenMissions={() => setIsMissionsOpen(true)}
             onOpenSouvenirs={() => setIsSouvenirsOpen(true)}
             onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}

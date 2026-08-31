@@ -139,5 +139,15 @@ async function productionSpeak(text: string): Promise<void> {
 
 const productionTransport: VoiceTransport = { speak: productionSpeak };
 
+// App installs the live "કાકા શાંત" check here once it has mounted; until then Kaka is
+// only gated by the global sound mute.
+let kakaMutedGetter: () => boolean = () => false;
+export function setKakaMutedGetter(fn: () => boolean): void {
+  kakaMutedGetter = fn;
+}
+
 /** The single Kaka voice channel for the whole app. */
-export const voiceQueue = createVoiceQueue(productionTransport, () => soundManager.getMuted());
+export const voiceQueue = createVoiceQueue(
+  productionTransport,
+  () => soundManager.getMuted() || kakaMutedGetter(),
+);
