@@ -23,6 +23,10 @@ import {
   FORWARD_GEARS,
 } from '../state/transmission';
 
+// Gir Forest zone centre — hoisted so the per-frame speed-cap distance check in updatePhysics
+// doesn't allocate a new Vector3 every frame.
+const GIR_CENTER_VEC = new THREE.Vector3(150, 0, 550);
+
 export class GameWorld {
   public container: HTMLElement;
   public scene: THREE.Scene;
@@ -347,6 +351,19 @@ export class GameWorld {
     this.timeOfDaySystem.advanceTimeOfDay(hours);
   }
 
+  /** Skip the day/night phase forward to the next occurrence of `targetHour` (0–23), computed
+   *  from the live phase clock. "Rest till morning" calls this with 6. */
+  public advanceToHour(targetHour: number) {
+    this.timeOfDaySystem.advanceToHour(targetHour);
+  }
+
+  /** Clear the "weather froze the clock" latch. setTimeFreezeMode('dynamic') resumes the live
+   *  cycle but leaves this private flag stale; callers that explicitly unfreeze (e.g. Rest)
+   *  clear it here so a later autonomous weather pick doesn't wrongly resume-from-frozen. */
+  public clearWeatherClockFreeze() {
+    this.weatherFrozeTheClock = false;
+  }
+
   public toggleFreezeDay(): boolean {
     const isNowDayFrozen = this.timeOfDaySystem.toggleDayFreeze();
     soundManager.playClick();
@@ -399,6 +416,12 @@ export class GameWorld {
    *  single horn toot as the "won't start" cue. */
   public toggleEngine(): boolean {
     if (this.isEngineOn) {
+      // Refuse to kill the engine while rolling — updatePhysics early-returns when the engine
+      // is off, which would freeze the vehicle at speed and strand the HUD on its last reading.
+      if (Math.abs(this.speed) > 1) {
+        soundManager.playHorn(1);
+        return true;
+      }
       this.isEngineOn = false;
       soundManager.stopEngine();
       return false;
@@ -537,7 +560,7 @@ export class GameWorld {
     this.healthState.isOverheating = this.healthState.engineTempCelsius > 110;
 
     // Gir Forest Mode speed cap (25 km/h) to protect Asiatic lions & wildlife
-    const distToGir = this.vehiclePos.distanceTo(new THREE.Vector3(150, 0, 550));
+    const distToGir = this.vehiclePos.distanceTo(GIR_CENTER_VEC);
     if (distToGir < 160) {
       maxForwardSpeed = Math.min(maxForwardSpeed, 25);
     }

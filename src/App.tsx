@@ -479,7 +479,9 @@ export default function App() {
           setInspectingLandmark(world.nearbyLandmark);
         }
       } else if (key === 'i') {
-        // Engine start/stop is allowed in either mode (GameWorld enforces the standstill rule).
+        // Expert-only: manual engine start/stop (like q/e). In auto mode the engine is
+        // managed for the player. GameWorld also refuses to stop the engine above 1 km/h.
+        if (!expertModeRef.current) return;
         worldRef.current?.toggleEngine();
       }
     };
@@ -799,7 +801,15 @@ export default function App() {
     if (!world) return;
     const wasOn = world.isEngineOn;
     const nowOn = world.toggleEngine();
-    if (!wasOn && !nowOn) {
+    if (wasOn && nowOn) {
+      // Engine stayed on: refused to stop while the cart is still rolling.
+      notify({
+        text: 'છકડો ઊભો રાખીને એન્જિન બંધ કરો',
+        tone: 'info',
+        speak: false,
+        ttlMs: 3000,
+      });
+    } else if (!wasOn && !nowOn) {
       notify({
         text: 'એન્જિન ચાલુ કરવા છકડો ઊભો રાખો અને ગિયર N કે R માં નાખો',
         tone: 'info',
@@ -865,16 +875,14 @@ export default function App() {
   const handleRest = () => {
     const world = worldRef.current;
     if (!world) return;
-    // A frozen clock ignores the phase offset (manualMode overrides rawProgress), so Rest
-    // would be a silent no-op under a lying "morning" toast. Resume the dynamic cycle first
-    // so Rest always wakes the player into a live morning.
-    if (timeOfDay?.isFrozen) {
-      world.setTimeFreezeMode('dynamic');
-    }
-    const h = timeOfDay?.hour ?? 22;
-    const m = timeOfDay?.minute ?? 0;
-    const hoursUntilSix = (6 - (h + m / 60) + 24) % 24;
-    world.advanceTimeOfDay(hoursUntilSix);
+    // Resume the live cycle first: a frozen clock ignores the phase offset (manualMode
+    // overrides rawProgress). setTimeFreezeMode('dynamic') clears manualMode but leaves the
+    // weather-clock latch stale, so clear that too. Then let the world skip the phase clock
+    // forward to the next 06:00 from its OWN live state — no React-side arithmetic, which
+    // used to read the frozen manualProgress hour and land at an arbitrary offset.
+    world.setTimeFreezeMode('dynamic');
+    world.clearWeatherClockFreeze();
+    world.advanceToHour(6);
     notify({ text: 'સવાર પડી — તાજામાજા થઈને ચાલો!', tone: 'reward' });
   };
 
