@@ -339,6 +339,10 @@ export default function App() {
 
     world.onGearChange = (g) => setGear(g);
 
+    // The WeatherDirector re-picks weather as the player drives between regions / times of
+    // day; mirror it into React so the HUD icon and Kaka context stay truthful.
+    world.onWeatherChange = (w) => setWeather(w);
+
     // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
     // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
     // because this callback is registered exactly once.
@@ -808,8 +812,9 @@ export default function App() {
       const weathers: WeatherType[] = ['sunny', 'sunset', 'night', 'rain', 'fog'];
       const nextIdx = (weathers.indexOf(weather) + 1) % weathers.length;
       const nextWeather = weathers[nextIdx];
-      worldRef.current.setWeather(nextWeather);
-      setWeather(nextWeather);
+      // Manual pick wins for ~one cycle-distance (1400 m), then the region/time
+      // WeatherDirector resumes control. onWeatherChange mirrors it back into React state.
+      worldRef.current.setManualWeather(nextWeather);
     }
   };
 

@@ -8,6 +8,7 @@ import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomi
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
 import { soundManager } from '../audio/SoundManager';
+import { pickWeather, weatherParams, WeatherParams } from '../state/weatherDirector';
 import {
   Gear,
   autoGear,
@@ -48,6 +49,15 @@ export class GameWorld {
   public isHazardOn: boolean = false;
   public currentCameraMode: CameraMode = 'chase';
   public currentWeather: WeatherType = 'sunny';
+
+  // Region/time weather. `weatherParamsCache` holds the driving numbers for `currentWeather`
+  // (refreshed in setWeather); the WeatherDirector re-picks at ~2 Hz in animate(). A HUD
+  // toggle stamps `manualOverrideUntilDistance` so the manual pick wins for one cycle-distance
+  // before the director resumes.
+  private weatherParamsCache: WeatherParams = weatherParams('sunny');
+  public manualWeatherOverride: WeatherType | null = null;
+  private manualOverrideUntilDistance = 0;
+  private lastWeatherEvalAt = 0;
 
   // Transmission
   public transmissionMode: TransmissionMode = 'auto';
@@ -93,6 +103,7 @@ export class GameWorld {
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
   public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
   public onGearChange?: (gear: Gear) => void;
+  public onWeatherChange?: (weather: WeatherType) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
@@ -263,6 +274,7 @@ export class GameWorld {
 
   public setWeather(weather: WeatherType) {
     this.currentWeather = weather;
+    this.weatherParamsCache = weatherParams(weather);
 
     if (weather === 'sunset') {
       this.timeOfDaySystem.setManualPhase('sunset');
@@ -273,8 +285,19 @@ export class GameWorld {
     }
 
     if (this.rainParticles) {
-      (this.rainParticles.material as THREE.PointsMaterial).opacity = weather === 'rain' ? 0.65 : 0;
+      (this.rainParticles.material as THREE.PointsMaterial).opacity = this.weatherParamsCache.rainOpacity;
     }
+
+    // Keep React (HUD icon, Kaka context) in step when the director re-picks the weather.
+    this.onWeatherChange?.(weather);
+  }
+
+  /** HUD weather button: force a weather and make it stick for ~one cycle-distance (1400 m of
+   *  driving) before the WeatherDirector resumes region/time control. */
+  public setManualWeather(weather: WeatherType) {
+    this.manualWeatherOverride = weather;
+    this.manualOverrideUntilDistance = this.totalDistanceDriven + 1400;
+    this.setWeather(weather);
   }
 
   public setTimeOfDayPhase(phase: 'auto' | 'sunrise' | 'day' | 'sunset' | 'night') {
@@ -378,9 +401,11 @@ export class GameWorld {
     this.chhakaro.group.position.copy(this.vehiclePos);
     this.chhakaro.group.rotation.y = this.vehicleRotation;
 
-    // Adapt weather to region
-    if (loc.id === 'saputara') this.setWeather('rain');
-    else if (loc.id === 'kutch') this.setWeather('sunset');
+    // Adapt weather to region. Route through setManualWeather so the arrival look holds for a
+    // stretch before the WeatherDirector (which also knows these regions) resumes control —
+    // otherwise the ~2 Hz re-pick would fight the teleport the same second.
+    if (loc.id === 'saputara') this.setManualWeather('rain');
+    else if (loc.id === 'kutch') this.setManualWeather('sunset');
     else if (loc.id === 'dwarka' || loc.id === 'somnath') soundManager.playTempleBell();
 
     if (this.onLocationChange) this.onLocationChange(loc);
@@ -483,10 +508,16 @@ export class GameWorld {
       maxForwardSpeed = Math.min(maxForwardSpeed, 25);
     }
 
-    // Saputara Rain grip modifier
-    if (this.currentWeather === 'rain') {
-      acceleration *= 0.75;
-      friction *= 0.65;
+    // Region/time weather grip: rain slashes accel & braking authority, coastal/dust fog
+    // trims it slightly (see weatherParams). Applied to both so the cart both accelerates
+    // and stops worse on a wet Saputara ghat.
+    acceleration *= this.weatherParamsCache.gripMultiplier;
+    friction *= this.weatherParamsCache.gripMultiplier;
+    // Kutch dust storm: a faint, constant sideways drift on the little three-wheeler.
+    // `windPushX` is zone-agnostic in weatherParams; the shove only makes sense in the Rann,
+    // so gate it to Kutch (sea fog on the coast should not push the vehicle).
+    if (this.currentLocation.id === 'kutch') {
+      this.vehiclePos.x += this.weatherParamsCache.windPushX * delta * 0.1;
     }
 
     // Transmission — gear-aware torque + per-gear speed ceiling.
@@ -765,6 +796,29 @@ export class GameWorld {
     // Update smooth distance-based time of day & lighting
     const timeState = this.timeOfDaySystem.update(this.totalDistanceDriven, this.vehiclePos, this.currentWeather);
     this.currentTimeOfDayState = timeState;
+
+    // Region/time weather — re-picked at ~2 Hz off the pure WeatherDirector (needs the fresh
+    // phase, so this runs after the time-of-day update). A HUD override wins until the player
+    // has driven the stamped stretch, then the director resumes.
+    const nowMs = performance.now();
+    if (nowMs - this.lastWeatherEvalAt > 500) {
+      this.lastWeatherEvalAt = nowMs;
+      const next = pickWeather({
+        zoneId: this.currentLocation.id,
+        phase: timeState.phase,
+        distanceDriven: this.totalDistanceDriven,
+        manualOverride:
+          this.totalDistanceDriven < this.manualOverrideUntilDistance ? this.manualWeatherOverride : null,
+      });
+      if (next !== this.currentWeather) this.setWeather(next);
+    }
+
+    // T7 Ruling: WeatherDirector owns scene.fog.density. TimeOfDaySystem set colour + its own
+    // density this same frame just above; this override wins (benign — same frame, no flicker).
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.density = this.weatherParamsCache.fogDensity;
+    }
+
     // Light up city windows / street lamps at night; bloom the coastal aarti glow at dusk
     this.environmentBuilder.setNightFactor(THREE.MathUtils.clamp(-timeState.sunElevation * 1.6 + 0.15, 0, 1));
     if (this.onTimeOfDayUpdate) {
