@@ -31,6 +31,7 @@ import {
   RoadsideEncounter,
   PassportStampRecord,
   NavTarget,
+  TransmissionMode,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -62,6 +63,11 @@ export default function App() {
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
+  const [gear, setGear] = useState<string>('N');
+  // Persisted gearbox prefs. Task 1 only reads these; the Expert toggle + manual-shift keys
+  // that write them land in M3 Task 2.
+  const [transmissionMode] = useState<TransmissionMode>(initial.transmissionMode);
+  const [expertMode] = useState(initial.expertMode);
   const [currentLocation, setCurrentLocation] = useState<LocationData>(
     GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
   );
@@ -312,7 +318,7 @@ export default function App() {
   useEffect(() => {
     if (!isGameStarted || !containerRef.current) return;
 
-    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000);
+    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000, initial.transmissionMode);
     worldRef.current = world;
     canvasRef.current = world.canvas;
 
@@ -324,6 +330,8 @@ export default function App() {
       setRpm(newRpm);
       setTotalKm(world.totalDistanceDriven / 1000);
     };
+
+    world.onGearChange = (g) => setGear(g);
 
     // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
     // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
@@ -521,6 +529,8 @@ export default function App() {
       lastLocationId: currentLocation.id,
       stampMeta,
       kakaMuted,
+      transmissionMode,
+      expertMode,
     });
   }, [
     coins,
@@ -536,6 +546,8 @@ export default function App() {
     currentLocation,
     stampMeta,
     kakaMuted,
+    transmissionMode,
+    expertMode,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -955,6 +967,8 @@ export default function App() {
           <HUD
             speed={speed}
             rpm={rpm}
+            gear={gear}
+            transmissionMode={transmissionMode}
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}

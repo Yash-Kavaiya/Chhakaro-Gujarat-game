@@ -50,8 +50,22 @@ describe('persistence', () => {
     expect(loadProgress().stampMeta).toEqual({});
   });
 
-  it('is on schema version 3', () => {
-    expect(SCHEMA_VERSION).toBe(3);
+  it('is on schema version 4', () => {
+    expect(SCHEMA_VERSION).toBe(4);
+  });
+
+  it('round-trips transmissionMode and expertMode with safe defaults', () => {
+    expect(loadProgress().transmissionMode).toBe('auto');
+    expect(loadProgress().expertMode).toBe(false);
+    const p = { ...DEFAULT_PROGRESS, transmissionMode: 'manual' as const, expertMode: true };
+    saveProgress(p); flushProgress();
+    expect(loadProgress().transmissionMode).toBe('manual');
+    expect(loadProgress().expertMode).toBe(true);
+  });
+
+  it('rejects a garbage transmissionMode', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SCHEMA_VERSION, progress: { transmissionMode: 'turbo' } }));
+    expect(loadProgress().transmissionMode).toBe('auto');
   });
 
   it('round-trips kakaMuted and defaults it to false', () => {

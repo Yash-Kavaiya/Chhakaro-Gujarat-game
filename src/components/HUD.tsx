@@ -30,7 +30,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GameWorld } from '../world/GameWorld';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
@@ -41,6 +41,8 @@ import { KakaStrip } from './KakaStrip';
 interface HUDProps {
   speed: number;
   rpm: number;
+  gear: string;
+  transmissionMode: TransmissionMode;
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
   visitedLocations: string[];
@@ -91,6 +93,8 @@ interface HUDProps {
 export const HUD: React.FC<HUDProps> = ({
   speed,
   rpm,
+  gear,
+  transmissionMode,
   currentLocation,
   nearbyLandmark,
   visitedLocations,
@@ -421,6 +425,8 @@ export const HUD: React.FC<HUDProps> = ({
             <SpeedometerGauge
               speed={speed}
               rpm={rpm}
+              gear={gear}
+              transmissionMode={transmissionMode}
               totalKm={totalKm}
               currentLocation={currentLocation}
               isHeadlightOn={isHeadlightOn}

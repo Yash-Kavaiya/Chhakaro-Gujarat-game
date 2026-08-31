@@ -3,6 +3,10 @@ export type RegionType = GujaratRegion;
 
 export type WeatherType = 'sunny' | 'sunset' | 'night' | 'rain' | 'fog';
 
+/** Gearbox behaviour. Declared here (not in state/transmission) to keep types.ts free of
+ *  a types → state dependency; transmission.ts imports this type back. */
+export type TransmissionMode = 'auto' | 'manual';
+
 export type TimeOfDayPhase = 'sunrise' | 'day' | 'sunset' | 'dusk' | 'night' | 'dawn';
 export type TimeFreezeMode = 'dynamic' | 'day' | 'sunrise' | 'sunset' | 'night';
 
@@ -60,6 +64,8 @@ export interface LocationData {
   signboardText: string;
   unlockRequirement?: string;
   icon: string;
+  /** Optional signature landmark for this zone — drives the hero-landmark set piece (M3 Task 3). */
+  heroLandmark?: 'raniKiVav' | 'somnath' | 'girGate' | 'whiteRann' | 'statueOfUnity';
 }
 
 export interface ChhakaroCustomization {
@@ -97,6 +103,8 @@ export interface GameProgress {
   lastLocationId: string;
   stampMeta: Record<string, PassportStampRecord>;
   kakaMuted: boolean;
+  transmissionMode: TransmissionMode;
+  expertMode: boolean;
 }
 
 export interface PassportStamp {
@@ -166,6 +174,8 @@ export interface VehicleControls {
   handbrake: boolean;
   horn: boolean;
   headlight: boolean;
+  shiftUp: boolean;
+  shiftDown: boolean;
 }
 
 export type CameraMode = 'chase' | 'hood' | 'passenger' | 'cinematic' | 'drone';

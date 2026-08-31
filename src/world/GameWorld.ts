@@ -4,10 +4,19 @@ import { EnvironmentBuilder } from './EnvironmentBuilder';
 import { TimeOfDaySystem } from './TimeOfDaySystem';
 import { NPCSystem } from './NPCSystem';
 import { TrafficSystem } from './TrafficSystem';
-import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
 import { soundManager } from '../audio/SoundManager';
+import {
+  Gear,
+  autoGear,
+  accelMultiplier,
+  gearMaxSpeed,
+  shiftUp as shiftGearUp,
+  shiftDown as shiftGearDown,
+  canStartEngine,
+} from '../state/transmission';
 
 export class GameWorld {
   public container: HTMLElement;
@@ -37,6 +46,10 @@ export class GameWorld {
   public isHazardOn: boolean = false;
   public currentCameraMode: CameraMode = 'chase';
   public currentWeather: WeatherType = 'sunny';
+
+  // Transmission
+  public transmissionMode: TransmissionMode = 'auto';
+  public currentGear: Gear = 'N';
 
   // Vehicle Health & Fuel
   public healthState: VehicleHealthState = {
@@ -77,6 +90,7 @@ export class GameWorld {
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
   public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
+  public onGearChange?: (gear: Gear) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
@@ -89,17 +103,21 @@ export class GameWorld {
     handbrake: false,
     horn: false,
     headlight: true,
+    shiftUp: false,
+    shiftDown: false,
   };
 
   constructor(
     container: HTMLElement,
     customization: ChhakaroCustomization,
     initialDistanceMeters = 0,
+    transmissionMode: TransmissionMode = 'auto',
   ) {
     this.container = container;
     this.clock = new THREE.Clock();
     // Resume: seed the odometer so totalKm doesn't snap to 0 on the first frame.
     this.totalDistanceDriven = initialDistanceMeters;
+    this.transmissionMode = transmissionMode;
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
@@ -285,6 +303,44 @@ export class GameWorld {
     soundManager.startEngine();
   }
 
+  /** Switch gearbox behaviour. In auto we immediately resolve the gear for the current speed. */
+  public setTransmissionMode(mode: TransmissionMode) {
+    this.transmissionMode = mode;
+    if (mode === 'auto') {
+      this.currentGear = autoGear(this.speed, this.currentGear);
+    }
+    this.onGearChange?.(this.currentGear);
+  }
+
+  /** Manual shift up one gear on the R,N,1..4 ladder (no-op in auto). */
+  public shiftUp() {
+    if (this.transmissionMode !== 'manual') return;
+    this.currentGear = shiftGearUp(this.currentGear);
+    this.onGearChange?.(this.currentGear);
+  }
+
+  /** Manual shift down one gear on the R,N,1..4 ladder (no-op in auto). */
+  public shiftDown() {
+    if (this.transmissionMode !== 'manual') return;
+    this.currentGear = shiftGearDown(this.currentGear);
+    this.onGearChange?.(this.currentGear);
+  }
+
+  /** Start / stop the engine, honouring the manual "standstill in N or R" rule. */
+  public toggleEngine(): boolean {
+    if (this.isEngineOn) {
+      this.isEngineOn = false;
+      soundManager.stopEngine();
+      return false;
+    }
+    if (!canStartEngine(this.transmissionMode, this.currentGear, this.speed)) {
+      return false;
+    }
+    this.isEngineOn = true;
+    soundManager.startEngine();
+    return true;
+  }
+
   public updateCustomization(custom: ChhakaroCustomization) {
     this.chhakaro.updateCustomization(custom);
   }
@@ -420,6 +476,20 @@ export class GameWorld {
       friction *= 0.65;
     }
 
+    // Transmission — gear-aware torque + per-gear speed ceiling.
+    // autoGear() upshifts strictly above the band max while the clamp below pins speed
+    // *exactly* at that max, so under full throttle we feed autoGear the speed the car is
+    // pushing toward (+1) — otherwise an automatic deadlocks on the gear-1 ceiling (18 km/h).
+    if (this.transmissionMode === 'auto') {
+      const demandSpeed = this.controls.forward ? this.speed + 1 : this.speed;
+      this.currentGear = autoGear(demandSpeed, this.currentGear);
+    } // manual: this.currentGear is set by shiftUp/shiftDown
+    const gearMult = accelMultiplier(this.currentGear, Math.abs(this.speed), this.transmissionMode);
+    acceleration *= gearMult;
+    maxForwardSpeed = Math.min(maxForwardSpeed, gearMaxSpeed(this.currentGear));
+    if (this.currentGear === 'N') { acceleration = 0; }
+    this.onGearChange?.(this.currentGear);
+
     // 1. Acceleration & Braking
     const isAccelerating = this.controls.forward;
     if (this.controls.forward) {
@@ -427,7 +497,7 @@ export class GameWorld {
     } else if (this.controls.backward) {
       if (this.speed > 1) {
         this.speed = Math.max(this.speed - brakeForce * delta, 0);
-      } else {
+      } else if (this.transmissionMode === 'auto' || this.currentGear === 'R') {
         this.speed = Math.max(this.speed - acceleration * 0.7 * delta, maxReverseSpeed);
       }
     } else if (this.controls.handbrake) {
