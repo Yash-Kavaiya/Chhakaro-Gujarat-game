@@ -847,7 +847,7 @@ export class GameWorld {
 
     // Update dynamic road traffic & wildlife
     if (this.trafficSystem) {
-      this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn);
+      this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn, this.vehicleRotation);
     }
 
     // Update dynamic multi-aspect wide traffic signals & countdown timers
