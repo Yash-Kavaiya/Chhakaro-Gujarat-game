@@ -5,6 +5,7 @@ import { TrafficSignalBuilder } from './TrafficSignalBuilder';
 import { RoadGeometryHelper } from './RoadGeometryHelper';
 import { RoadTextureGenerator } from './RoadTextureGenerator';
 import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
+import * as raniKiVav from './landmarks/raniKiVav';
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
@@ -523,7 +524,7 @@ export class EnvironmentBuilder {
         this.buildSuratTapiBridge(landmarkGroup);
         break;
       case 'patan_modhera':
-        this.buildPatanModheraLandmark(landmarkGroup);
+        landmarkGroup.add(raniKiVav.build());
         break;
       case 'pavagadh':
         this.buildPavagadhChampaner(landmarkGroup);

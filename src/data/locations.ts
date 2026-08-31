@@ -228,6 +228,7 @@ export const GUJARAT_LOCATIONS: LocationData[] = [
     worldPosition: { x: -420, z: -180 },
     zoneRadius: 300,
     environmentTheme: 'heritage_stepwell',
+    heroLandmark: 'raniKiVav',
     ambientAudioType: 'village',
     signboardText: 'વર્લ્ડ હેરિટેજ પાટણ | રાણકી વાવ & મોઢેરા સૂર્ય મંદિર',
     icon: '🏛️',
