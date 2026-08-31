@@ -1,7 +1,7 @@
 import { GameProgress, PassportStampRecord } from '../types';
 
 export const SAVE_KEY = 'chhakaro-gujarat-save-v1';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const DEFAULT_PROGRESS: GameProgress = {
   coins: 1200,
@@ -23,6 +23,7 @@ export const DEFAULT_PROGRESS: GameProgress = {
   totalKm: 0,
   lastLocationId: 'rajkot',
   stampMeta: {},
+  kakaMuted: false,
 };
 
 interface StoredSave {
@@ -81,6 +82,7 @@ export function loadProgress(): GameProgress {
       totalKm: typeof p.totalKm === 'number' && Number.isFinite(p.totalKm) ? p.totalKm : DEFAULT_PROGRESS.totalKm,
       lastLocationId: typeof p.lastLocationId === 'string' ? p.lastLocationId : DEFAULT_PROGRESS.lastLocationId,
       stampMeta: sanitizeStampMeta(p.stampMeta),
+      kakaMuted: typeof p.kakaMuted === 'boolean' ? p.kakaMuted : DEFAULT_PROGRESS.kakaMuted,
     };
   } catch {
     return { ...DEFAULT_PROGRESS };

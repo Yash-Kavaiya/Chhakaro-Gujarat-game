@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { GameWorld } from './world/GameWorld';
 import { HUD } from './components/HUD';
 import { KanjiKakaGuide } from './components/KanjiKakaGuide';
@@ -37,12 +37,18 @@ import { GUJARAT_MISSIONS } from './data/missions';
 import { GUJARATI_SOUVENIRS } from './data/souvenirs';
 import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
+import { voiceQueue, setKakaMutedGetter } from './audio/VoiceQueue';
 import { evaluateAchievements } from './state/achievements';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 import { navState, NavState } from './state/navigation';
 import { nearestUnvisited } from './state/exploration';
+import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
+import { evaluateKakaTriggers } from './state/kakaTriggers';
+import { useKakaCompanion } from './state/useKakaCompanion';
+import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
+import { radioAudioEngine } from './audio/RadioAudioEngine';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -120,22 +126,114 @@ export default function App() {
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
-  // Turn-by-turn nav. `navTarget` is the chosen destination (a mission drop or "માર્ગ બતાવો");
-  // `navLive` is the throttled per-frame route (distance + heading-relative angle + arrived).
+  // Turn-by-turn nav. `navTarget` is an *explicit* user destination ("માર્ગ બતાવો" / a voice
+  // command); `routeQueue` is a Kaka trip plan being driven stop by stop; a mission drop is
+  // the implicit third source. Precedence: explicit > route queue > mission.
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
+  const [routeQueue, setRouteQueue] = useState<string[]>([]);
   const [navLive, setNavLive] = useState<NavState | null>(null);
-  // world.onVehicleMove is registered once, so it reads navTarget through a ref.
+  // world.onVehicleMove is registered once, so it reads the derived target + queue via refs.
   const navTargetRef = useRef<NavTarget | null>(null);
+  const routeQueueRef = useRef<string[]>([]);
   const navTickRef = useRef(0);
   const navStartDistRef = useRef<number | null>(null);
   const navCuesRef = useRef({ start: false, half: false, near: false });
 
+  const effectiveNavTargetId: string | null =
+    navTarget?.locationId ?? routeQueue[0] ?? activeMission?.dropLocationId ?? null;
+
   useEffect(() => {
-    navTargetRef.current = navTarget;
+    routeQueueRef.current = routeQueue;
+  }, [routeQueue]);
+
+  useEffect(() => {
+    navTargetRef.current = effectiveNavTargetId ? { locationId: effectiveNavTargetId } : null;
     navStartDistRef.current = null;
     navCuesRef.current = { start: false, half: false, near: false };
-    if (!navTarget) setNavLive(null);
-  }, [navTarget]);
+    if (!effectiveNavTargetId) setNavLive(null);
+  }, [effectiveNavTargetId]);
+
+  // Bounded ring of the player's last few actions — Kaka reacts to these. pushKakaEvent is
+  // called from the reward paths; the tick state forces the kakaContext memo to refresh.
+  const recentEventsRef = useRef<KakaEvent[]>([]);
+  const [kakaEventTick, setKakaEventTick] = useState(0);
+  const pushKakaEvent = (e: KakaEvent) => {
+    recentEventsRef.current = [e, ...recentEventsRef.current].slice(0, 5);
+    setKakaEventTick((t) => t + 1);
+  };
+  const locName = (id: string | null | undefined): string =>
+    (id && GUJARAT_LOCATIONS.find((l) => l.id === id)?.nameGujarati) || id || '';
+
+  // The one live snapshot every Kaka utterance is grounded in. Consumed by the companion
+  // hook and the proactive-trigger effect (added in later M2 tasks).
+  const kakaContext: KakaContext = useMemo(
+    () =>
+      buildKakaContext({
+        zoneId: currentLocation.id,
+        zoneNameGujarati: currentLocation.nameGujarati,
+        zoneRegion: currentLocation.region,
+        nearbyLandmarkId: nearbyLandmark?.id ?? null,
+        nearbyLandmarkUnvisited: nearbyLandmark
+          ? !visitedLocations.includes(nearbyLandmark.id) && effectiveNavTargetId !== nearbyLandmark.id
+          : false,
+        visitedCount: visitedLocations.length,
+        totalLocations: GUJARAT_LOCATIONS.length,
+        mission: activeMission
+          ? {
+              titleGujarati: activeMission.titleGujarati,
+              dropNameGujarati: locName(activeMission.dropLocationId),
+            }
+          : null,
+        nav:
+          effectiveNavTargetId && navLive
+            ? { targetNameGujarati: locName(effectiveNavTargetId), distanceM: navLive.distanceM }
+            : null,
+        speedKmh: speed,
+        vehiclePos: worldRef.current
+          ? { x: worldRef.current.vehiclePos.x, z: worldRef.current.vehiclePos.z }
+          : null,
+        fuelPercent: vehicleHealth.fuelPercent,
+        weather,
+        timeOfDayPhase: timeOfDay?.phase ?? null,
+        recentEvents: recentEventsRef.current,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      currentLocation,
+      nearbyLandmark,
+      visitedLocations,
+      activeMission,
+      effectiveNavTargetId,
+      navLive,
+      speed,
+      vehicleHealth,
+      weather,
+      timeOfDay,
+      kakaEventTick,
+    ],
+  );
+
+  // The last line Kaka said out loud — chat reply or proactive trigger — for the HUD strip.
+  const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
+  // "કાકા શાંત" — silences Kaka's proactive/spoken lines. Persisted (schema v3).
+  const [kakaMuted, setKakaMuted] = useState(initial.kakaMuted);
+  const kakaMutedRef = useRef(kakaMuted);
+  kakaMutedRef.current = kakaMuted;
+
+  // The companion controller reads the context through a ref accessor so its callbacks stay
+  // stable while every request still carries the freshest snapshot.
+  const kakaContextRef = useRef(kakaContext);
+  kakaContextRef.current = kakaContext;
+  const getKakaContext = useCallback(() => kakaContextRef.current, []);
+  const kaka = useKakaCompanion(getKakaContext);
+
+  useEffect(() => {
+    if (kaka.lastReply) setLastKakaNarration(kaka.lastReply);
+  }, [kaka.lastReply]);
+
+  useEffect(() => {
+    setKakaMutedGetter(() => kakaMutedRef.current);
+  }, []);
 
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
   // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
@@ -167,7 +265,6 @@ export default function App() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isPhotoModeOpen, setIsPhotoModeOpen] = useState(false);
   const [inspectingLandmark, setInspectingLandmark] = useState<LocationData | null>(null);
-  const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
 
   // The single reward / event feedback channel. Every path that used to pair an ad-hoc
   // setFloatingBanner(...) with a loose soundManager.* call now calls notify() — one banner
@@ -183,12 +280,33 @@ export default function App() {
     const s = toneSound(tone);
     if (s === 'chime') soundManager.playChime();
     else if (s === 'horn') soundManager.playHorn(1);
-    if (speak) soundManager.speakGujaratiTextFallback(text);
+    // Kaka narration goes through the shared queue so lines never overlap; the short
+    // tone SFX above stays on soundManager.
+    if (speak) voiceQueue.enqueue(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), ttlMs);
   };
 
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
+
+  // Proactive Kanji Kaka narration. Diff the previous vs current context snapshot on every
+  // change; evaluateKakaTriggers is pure and rising-edge, and firedTriggerIds keeps each
+  // trigger to one utterance per session. The very first snapshot only seeds the ref so the
+  // "entered rajkot" line doesn't double up with the start-game greeting.
+  const prevKakaContextRef = useRef<KakaContext | null>(null);
+  const firedTriggerIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isGameStarted) return;
+    const prev = prevKakaContextRef.current;
+    prevKakaContextRef.current = kakaContext;
+    if (!prev) return;
+    const fire = evaluateKakaTriggers(prev, kakaContext);
+    if (!fire || kakaMuted || firedTriggerIds.current.has(fire.id)) return;
+    firedTriggerIds.current.add(fire.id);
+    voiceQueue.enqueue(fire.textGujarati, { priority: fire.priority, dedupeKey: fire.id });
+    notify({ text: fire.textGujarati, tone: 'info', speak: false });
+    setLastKakaNarration(fire.textGujarati);
+  }, [isGameStarted, kakaContext, kakaMuted]);
 
   // Initialize Three.js Game World
   useEffect(() => {
@@ -227,21 +345,42 @@ export default function App() {
       const cues = navCuesRef.current;
       if (!cues.start) {
         cues.start = true;
-        soundManager.speakGujaratiTextFallback(
+        voiceQueue.enqueue(
           `${loc.nameGujarati} તરફ ચાલો — અંતર આશરે ${(ns.distanceM / 1000).toFixed(1)} કિમી`,
+          { dedupeKey: `nav-start:${loc.id}` },
         );
       } else if (!cues.half && ns.distanceM < startDist * 0.5) {
         cues.half = true;
-        soundManager.speakGujaratiTextFallback(`અડધો રસ્તો કપાયો — ${loc.nameGujarati} નજીક આવે છે`);
+        voiceQueue.enqueue(`અડધો રસ્તો કપાયો — ${loc.nameGujarati} નજીક આવે છે`, {
+          dedupeKey: `nav-half:${loc.id}`,
+        });
       } else if (!cues.near && ns.distanceM < loc.zoneRadius * 1.8) {
         cues.near = true;
-        soundManager.speakGujaratiTextFallback(`લગભગ પહોંચી ગયા! ${loc.nameGujarati} સામે જ છે`);
+        voiceQueue.enqueue(`લગભગ પહોંચી ગયા! ${loc.nameGujarati} સામે જ છે`, {
+          dedupeKey: `nav-near:${loc.id}`,
+        });
       }
 
       if (ns.arrived) {
         notify({ text: `પહોંચી ગયા! ${loc.nameGujarati}`, tone: 'reward' });
         checkMissionCompletion(loc.id);
-        setNavTarget(null);
+
+        // Advance a Kaka trip plan one stop.
+        const queue = routeQueueRef.current;
+        if (queue[0] === loc.id) {
+          const rest = queue.slice(1);
+          routeQueueRef.current = rest;
+          setRouteQueue(rest);
+          if (rest.length > 0) {
+            const nextLoc = GUJARAT_LOCATIONS.find((l) => l.id === rest[0]);
+            if (nextLoc) voiceQueue.enqueue(`આગળનું સ્થળ: ${nextLoc.nameGujarati}`);
+          } else {
+            notify({ text: 'સફર પૂરી! મોજ કરો.', tone: 'reward' });
+          }
+        }
+
+        // Clear an explicit destination once reached (queue / mission targets self-clear).
+        setNavTarget((cur) => (cur && cur.locationId === loc.id ? null : cur));
       }
     };
 
@@ -381,6 +520,7 @@ export default function App() {
       totalKm,
       lastLocationId: currentLocation.id,
       stampMeta,
+      kakaMuted,
     });
   }, [
     coins,
@@ -395,6 +535,7 @@ export default function App() {
     totalKm,
     currentLocation,
     stampMeta,
+    kakaMuted,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -422,6 +563,7 @@ export default function App() {
       prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
     );
     setCoins((c) => c + FIRST_VISIT_COINS);
+    pushKakaEvent({ kind: 'stamp', nameGujarati: locName(locId) });
     notify({ text: `📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`, tone: 'reward', speak: false });
   };
 
@@ -437,6 +579,7 @@ export default function App() {
     setCoins((prev) => prev + coinsReward);
     setReputationStars((prev) => Math.min(5, prev + 1));
     const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
+    pushKakaEvent({ kind: 'food', nameGujarati: foodName });
     notify({
       text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`,
       tone: 'reward',
@@ -469,13 +612,13 @@ export default function App() {
       setCompletedMissions((m) => [...m, mission.id]);
 
       const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
+      pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
 
-      // Clear passenger from vehicle + the nav arrow
+      // Clear passenger from vehicle; the mission-derived nav arrow drops with the mission.
       setActivePassenger(null);
       setActiveMission(null);
-      setNavTarget(null);
       if (worldRef.current) {
         worldRef.current.setPassenger(null);
       }
@@ -491,7 +634,8 @@ export default function App() {
     activeMissionRef.current = mission;
     activePassengerRef.current = passenger;
     if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
-    setNavTarget({ locationId: mission.dropLocationId });
+    // The nav arrow follows the mission drop implicitly (effectiveNavTargetId), unless the
+    // player has set an explicit destination or is mid trip-plan.
     const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
     notify({ text: `${mission.titleGujarati} — ચાલો ${dest} તરફ!`, tone: 'reward' });
   };
@@ -501,7 +645,6 @@ export default function App() {
     setActivePassenger(null);
     activeMissionRef.current = null;
     activePassengerRef.current = null;
-    setNavTarget(null);
     if (worldRef.current) worldRef.current.setPassenger(null);
     notify({ text: 'મિશન રદ થયું.', tone: 'info', speak: false });
   };
@@ -520,12 +663,14 @@ export default function App() {
     });
     if (!bought) return;
     setCoins((c) => c - item.priceCoins);
+    pushKakaEvent({ kind: 'souvenir', nameGujarati: item.nameGujarati });
     notify({ text: `🛍️ ${item.nameGujarati} ખરીદ્યું!`, tone: 'reward', speak: false });
   };
 
   const handleQuizCorrect = (rewardCoins: number) => {
     setCoins((c) => c + rewardCoins);
     setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
+    pushKakaEvent({ kind: 'quiz', correct: true });
     notify({ text: `સાચો જવાબ! +₹${rewardCoins}`, tone: 'reward', speak: false });
   };
 
@@ -535,6 +680,7 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.refuel(10);
       }
+      pushKakaEvent({ kind: 'refuel' });
       notify({ text: '⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!', tone: 'reward', speak: false });
     }
   };
@@ -545,6 +691,7 @@ export default function App() {
       if (worldRef.current) {
         worldRef.current.repairPunctureAndCool();
       }
+      pushKakaEvent({ kind: 'repair' });
       notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
     }
   };
@@ -555,7 +702,7 @@ export default function App() {
     setIsGameStarted(true);
 
     soundManager.startEngine();
-    soundManager.speakGujaratiTextFallback(
+    voiceQueue.enqueue(
       isResume
         ? `ફરી સ્વાગત છે! આપણો છકડો ${startLoc.nameGujarati} થી આગળ વધે છે. જય ગરવી ગુજરાત!`
         : `ચાલો બાપા! આપણો છકડો ${startLoc.nameGujarati} થી ઉપડ્યો! જય ગરવી ગુજરાત!`,
@@ -650,6 +797,86 @@ export default function App() {
     notify({ text: `${loc.nameGujarati} તરફ ચાલો — માર્ગ બતાવું છું`, tone: 'info' });
   };
 
+  // Scoped Gujarati voice commands from the Kaka mic. `unknown` never reaches here — the
+  // modal routes those to askKaka as a question.
+  const handleVoiceIntent = (intent: VoiceIntent) => {
+    switch (intent.kind) {
+      case 'navigate': {
+        const loc = GUJARAT_LOCATIONS.find((l) => l.id === intent.locationId);
+        if (!loc) return;
+        setRouteQueue([]);
+        setNavTarget({ locationId: loc.id });
+        voiceQueue.enqueue(`ચાલો ${loc.nameGujarati} તરફ!`);
+        break;
+      }
+      case 'open':
+        if (intent.target === 'map') setIsMapOpen(true);
+        else if (intent.target === 'passport') setIsPassportOpen(true);
+        else if (intent.target === 'missions') setIsMissionsOpen(true);
+        else if (intent.target === 'garage') setIsGarageOpen(true);
+        break;
+      case 'toggle':
+        if (intent.target === 'music') radioAudioEngine.togglePower();
+        else if (intent.target === 'headlight') handleToggleHeadlight();
+        else if (intent.target === 'mute') handleToggleMute();
+        break;
+      case 'photo':
+        setIsPhotoModeOpen(true);
+        break;
+      case 'repeat':
+        if (lastKakaNarration) voiceQueue.enqueue(lastKakaNarration, { priority: 'high' });
+        break;
+    }
+  };
+
+  const handleToggleKakaMuted = () => {
+    setKakaMuted((m) => {
+      const next = !m;
+      if (next) voiceQueue.clear();
+      return next;
+    });
+  };
+
+  // The HUD Kaka-strip mic: same scoped-command-or-question routing as the modal, but it
+  // works without opening the chat. A lazily-created single recognition instance.
+  const [kakaMicActive, setKakaMicActive] = useState(false);
+  const quickRecRef = useRef<any>(null);
+  const handleKakaMic = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      notify({ text: 'તમારા બ્રાઉઝરમાં માઇક્રોફોન સપોર્ટેડ નથી.', tone: 'warn', speak: false });
+      return;
+    }
+    if (!quickRecRef.current) {
+      const rec = new SpeechRecognition();
+      rec.continuous = false;
+      rec.interimResults = false;
+      rec.lang = 'gu-IN';
+      rec.onresult = (e: any) => {
+        const transcript = e.results?.[0]?.[0]?.transcript;
+        if (transcript) {
+          const intent = matchVoiceIntent(transcript, GUJARAT_LOCATIONS);
+          if (intent.kind !== 'unknown') handleVoiceIntent(intent);
+          else {
+            setIsKakaOpen(true);
+            kaka.askKaka(transcript);
+          }
+        }
+        setKakaMicActive(false);
+      };
+      rec.onerror = () => setKakaMicActive(false);
+      rec.onend = () => setKakaMicActive(false);
+      quickRecRef.current = rec;
+    }
+    try {
+      quickRecRef.current.start();
+      setKakaMicActive(true);
+    } catch {
+      setKakaMicActive(false);
+    }
+  };
+
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
     setCustomization(custom);
     if (worldRef.current) {
@@ -707,15 +934,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Turn-by-turn nav banner (mission drop, or "માર્ગ બતાવો" from the map) */}
-      {isGameStarted && navTarget && navLive && (
+      {/* Turn-by-turn nav banner — explicit destination, Kaka trip plan, or mission drop */}
+      {isGameStarted && effectiveNavTargetId && navLive && (
         <NavBanner
           targetName={
-            GUJARAT_LOCATIONS.find((l) => l.id === navTarget.locationId)?.nameGujarati ?? navTarget.locationId
+            GUJARAT_LOCATIONS.find((l) => l.id === effectiveNavTargetId)?.nameGujarati ?? effectiveNavTargetId
           }
           distanceM={navLive.distanceM}
           relativeDeg={navLive.relativeDeg}
-          onCancel={() => setNavTarget(null)}
+          onCancel={() => {
+            setNavTarget(null);
+            setRouteQueue([]);
+          }}
         />
       )}
 
@@ -729,7 +959,7 @@ export default function App() {
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
             worldRef={worldRef}
-            navTargetId={navTarget?.locationId ?? null}
+            navTargetId={effectiveNavTargetId}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
             isEngineOn={true}
@@ -757,6 +987,11 @@ export default function App() {
             onOpenFood={() => setIsFoodOpen(true)}
             onOpenGarage={() => setIsGarageOpen(true)}
             onOpenKaka={() => setIsKakaOpen(true)}
+            lastKakaLine={lastKakaNarration}
+            kakaMuted={kakaMuted}
+            kakaMicActive={kakaMicActive}
+            onToggleKakaMuted={handleToggleKakaMuted}
+            onKakaMic={handleKakaMic}
             onOpenMissions={() => setIsMissionsOpen(true)}
             onOpenSouvenirs={() => setIsSouvenirsOpen(true)}
             onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
@@ -780,11 +1015,17 @@ export default function App() {
         isOpen={isKakaOpen}
         onClose={() => setIsKakaOpen(false)}
         currentLocation={currentLocation}
-        speed={speed}
-        weather={weather}
-        visitedLocations={visitedLocations}
-        lastSpokenMessage={lastKakaNarration}
-        onNewKakaReply={(reply) => setLastKakaNarration(reply)}
+        messages={kaka.messages}
+        isThinking={kaka.isThinking}
+        onAsk={kaka.askKaka}
+        onGenerateTrip={kaka.generateTrip}
+        onStartTrip={(ids) => {
+          setNavTarget(null);
+          setRouteQueue(ids);
+          const first = GUJARAT_LOCATIONS.find((l) => l.id === ids[0]);
+          if (first) notify({ text: `સફર શરૂ! પહેલું સ્થળ: ${first.nameGujarati}`, tone: 'reward' });
+        }}
+        onVoiceIntent={handleVoiceIntent}
       />
 
       <GujaratMapModal

@@ -36,6 +36,7 @@ import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
 import { InCarRadio } from './InCarRadio';
 import { MiniMap } from './MiniMap';
+import { KakaStrip } from './KakaStrip';
 
 interface HUDProps {
   speed: number;
@@ -72,6 +73,11 @@ interface HUDProps {
   onOpenFood: () => void;
   onOpenGarage: () => void;
   onOpenKaka: () => void;
+  lastKakaLine: string;
+  kakaMuted: boolean;
+  kakaMicActive: boolean;
+  onToggleKakaMuted: () => void;
+  onKakaMic: () => void;
   onOpenMissions: () => void;
   onOpenSouvenirs: () => void;
   onOpenQuiz?: () => void;
@@ -116,6 +122,11 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenFood,
   onOpenGarage,
   onOpenKaka,
+  lastKakaLine,
+  kakaMuted,
+  kakaMicActive,
+  onToggleKakaMuted,
+  onKakaMic,
   onOpenMissions,
   onOpenSouvenirs,
   onOpenQuiz,
@@ -614,8 +625,16 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Bottom HUD: MiniMap + In-Car Radio (Left) & Menu Navigation Dock (Right) */}
       <div className="flex flex-col sm:flex-row items-end sm:items-end justify-between gap-3 pointer-events-none w-full">
-        {/* Left Side: MiniMap above the In-Car Radio */}
+        {/* Left Side: Kaka strip + MiniMap above the In-Car Radio */}
         <div className="flex flex-col gap-2 items-start">
+          <KakaStrip
+            lastLine={lastKakaLine}
+            kakaMuted={kakaMuted}
+            micActive={kakaMicActive}
+            onToggleMuted={onToggleKakaMuted}
+            onOpen={onOpenKaka}
+            onMic={onKakaMic}
+          />
           <MiniMap
             worldRef={worldRef}
             locations={GUJARAT_LOCATIONS}

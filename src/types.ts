@@ -96,6 +96,7 @@ export interface GameProgress {
   totalKm: number;
   lastLocationId: string;
   stampMeta: Record<string, PassportStampRecord>;
+  kakaMuted: boolean;
 }
 
 export interface PassportStamp {

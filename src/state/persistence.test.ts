@@ -50,6 +50,26 @@ describe('persistence', () => {
     expect(loadProgress().stampMeta).toEqual({});
   });
 
+  it('is on schema version 3', () => {
+    expect(SCHEMA_VERSION).toBe(3);
+  });
+
+  it('round-trips kakaMuted and defaults it to false', () => {
+    expect(loadProgress().kakaMuted).toBe(false);
+    const p = { ...DEFAULT_PROGRESS, kakaMuted: true };
+    saveProgress(p);
+    flushProgress();
+    expect(loadProgress().kakaMuted).toBe(true);
+  });
+
+  it('ignores a non-boolean kakaMuted', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: SCHEMA_VERSION,
+      progress: { kakaMuted: 'yes' },
+    }));
+    expect(loadProgress().kakaMuted).toBe(false);
+  });
+
   it('resets to defaults on schema version mismatch', () => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SCHEMA_VERSION + 1, progress: { coins: 5 } }));
     expect(loadProgress()).toEqual(DEFAULT_PROGRESS);

@@ -1,98 +1,99 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, MicOff, Send, Volume2, X, Sparkles, MessageSquare } from 'lucide-react';
-import { LocationData, WeatherType } from '../types';
-import { soundManager } from '../audio/SoundManager';
+import { Mic, MicOff, Send, Volume2, X, Map as MapIcon } from 'lucide-react';
+import { LocationData } from '../types';
+import { GUJARAT_LOCATIONS } from '../data/locations';
+import { voiceQueue } from '../audio/VoiceQueue';
+import { KakaChatMessage, KakaMode } from '../state/useKakaCompanion';
+import { TripPlan } from '../state/tripPlanner';
+import { matchVoiceIntent, VoiceIntent } from '../state/voiceCommands';
 
 interface KanjiKakaGuideProps {
   isOpen: boolean;
   onClose: () => void;
   currentLocation: LocationData;
-  speed: number;
-  weather: WeatherType;
-  visitedLocations: string[];
-  lastSpokenMessage: string;
-  onNewKakaReply: (msg: string) => void;
+  messages: KakaChatMessage[];
+  isThinking: boolean;
+  onAsk: (prompt: string, mode?: KakaMode) => void;
+  onGenerateTrip: (request: string) => Promise<TripPlan>;
+  onStartTrip: (locationIds: string[]) => void;
+  onVoiceIntent: (intent: VoiceIntent) => void;
 }
 
-interface ChatMessage {
-  id: string;
-  sender: 'user' | 'kaka';
-  text: string;
-  timestamp: string;
-  mood?: string;
-  food?: string;
-}
+const locName = (id: string): string =>
+  GUJARAT_LOCATIONS.find((l) => l.id === id)?.nameGujarati ?? id;
+
+const MODE_CHIPS: Array<{ mode: KakaMode; label: string; canned: (loc: LocationData) => string }> = [
+  { mode: 'ask', label: 'પૂછો', canned: () => '' },
+  { mode: 'story', label: 'વાર્તા', canned: (loc) => `${loc.nameGujarati} ની એક રસપ્રદ વાર્તા કે ઐતિહાસિક પ્રસંગ કહો` },
+  { mode: 'duha', label: 'દુહો', canned: () => 'એક મસ્ત કાઠિયાવાડી દુહો કે કહેવત સંભળાવો' },
+  { mode: 'food', label: 'ખાણીપીણી', canned: (loc) => `${loc.nameGujarati} માં શું ખાવાનું પ્રખ્યાત છે?` },
+  { mode: 'directions', label: 'રસ્તો', canned: () => 'આગળનો રસ્તો કેવો છે કાકા?' },
+];
 
 export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
   isOpen,
   onClose,
   currentLocation,
-  speed,
-  weather,
-  visitedLocations,
-  lastSpokenMessage,
-  onNewKakaReply,
+  messages,
+  isThinking,
+  onAsk,
+  onGenerateTrip,
+  onStartTrip,
+  onVoiceIntent,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'init',
-      sender: 'kaka',
-      text: `રામ રામ બાપા! હું તમારો કાનજી કાકો! અત્યારે આપણો છકડો ${currentLocation.nameGujarati} ના રસ્તે મોજમાં દોડે છે. પૂછો જે પૂછવું હોય — ઇતિહાસ, ખાણીપીણી કે રસ્તાની વાતો!`,
-      timestamp: 'હમણાં જ',
-      mood: 'cheerful',
-      food: currentLocation.famousFood,
-    },
-  ]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [activeMode, setActiveMode] = useState<KakaMode>('ask');
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+
+  const [tripOpen, setTripOpen] = useState(false);
+  const [tripRequest, setTripRequest] = useState('');
+  const [tripBusy, setTripBusy] = useState(false);
+  const [tripPlan, setTripPlan] = useState<TripPlan | null>(null);
+
   const recognitionRef = useRef<any>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Sync if proactive narration occurred
-  useEffect(() => {
-    if (lastSpokenMessage && !messages.some((m) => m.text === lastSpokenMessage)) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: String(Date.now()),
-          sender: 'kaka',
-          text: lastSpokenMessage,
-          timestamp: 'હમણાં જ',
-          mood: 'excited',
-        },
-      ]);
-    }
-  }, [lastSpokenMessage]);
+  const activeModeRef = useRef<KakaMode>('ask');
+  activeModeRef.current = activeMode;
+  // Handlers read through refs so the once-registered SpeechRecognition never goes stale.
+  const onAskRef = useRef(onAsk);
+  onAskRef.current = onAsk;
+  const onVoiceIntentRef = useRef(onVoiceIntent);
+  onVoiceIntentRef.current = onVoiceIntent;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, isThinking, tripPlan]);
 
-  // Voice speech-to-text recognition
+  // Gujarati speech-to-text. Registered once; a scoped command runs as an intent, anything
+  // else is asked as a question. Mode + handlers are read through refs.
   useEffect(() => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'gu-IN';
-
-      rec.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          handleSendMessage(transcript);
-        }
-        setIsListening(false);
-      };
-
-      rec.onerror = () => setIsListening(false);
-      rec.onend = () => setIsListening(false);
-
-      recognitionRef.current = rec;
-    }
-  }, [currentLocation, speed, weather]);
+    if (!SpeechRecognition) return;
+    const rec = new SpeechRecognition();
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.lang = 'gu-IN';
+    rec.onresult = (event: any) => {
+      const transcript = event.results?.[0]?.[0]?.transcript;
+      if (transcript) {
+        const intent = matchVoiceIntent(transcript, GUJARAT_LOCATIONS);
+        if (intent.kind !== 'unknown') onVoiceIntentRef.current(intent);
+        else onAskRef.current(transcript, activeModeRef.current);
+      }
+      setIsListening(false);
+    };
+    rec.onerror = () => setIsListening(false);
+    rec.onend = () => setIsListening(false);
+    recognitionRef.current = rec;
+    return () => {
+      try {
+        rec.abort();
+      } catch {
+        /* noop */
+      }
+    };
+  }, []);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
@@ -102,83 +103,41 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
     if (isListening) {
       recognitionRef.current.stop();
       setIsListening(false);
-    } else {
-      try {
-        recognitionRef.current.start();
-        setMicError(null);
-        setIsListening(true);
-      } catch (err) {
-        console.error('Speech recognition start failed', err);
-      }
+      return;
     }
-  };
-
-  const handleSendMessage = async (customPrompt?: string) => {
-    const query = customPrompt || inputText;
-    if (!query.trim() || isLoading) return;
-
-    const userMsg: ChatMessage = {
-      id: String(Date.now()),
-      sender: 'user',
-      text: query,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
-    setInputText('');
-    setIsLoading(true);
-
     try {
-      const res = await fetch('/api/gemini/guide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: query,
-          currentLocation,
-          visitedLocations,
-          speed,
-          weather,
-          timeOfDay: weather === 'night' ? 'night' : 'day',
-        }),
-      });
-
-      const data = await res.json();
-      const replyText = data.reply || 'કાં ભાઈ, મોજમાં રહો અને છકડો ચલાવતા રહો!';
-
-      const kakaMsg: ChatMessage = {
-        id: String(Date.now() + 1),
-        sender: 'kaka',
-        text: replyText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        mood: data.kakaMood,
-        food: data.recommendedFood,
-      };
-
-      setMessages((prev) => [...prev, kakaMsg]);
-      onNewKakaReply(replyText);
-
-      // Play Gujarati Voice narration
-      soundManager.speakGujaratiTextFallback(replyText);
+      recognitionRef.current.start();
+      setMicError(null);
+      setIsListening(true);
     } catch (err) {
-      console.error('Error fetching guide reply', err);
-      const fallbackMsg: ChatMessage = {
-        id: String(Date.now() + 1),
-        sender: 'kaka',
-        text: `કાં ભાઈ! આપણો છકડો ${currentLocation.nameGujarati} પહોંચી ગયો છે. અહીંની મુલાકાત યાદગાર રહેશે!`,
-        timestamp: 'હમણાં જ',
-      };
-      setMessages((prev) => [...prev, fallbackMsg]);
-    } finally {
-      setIsLoading(false);
+      console.error('Speech recognition start failed', err);
     }
   };
 
-  const quickPrompts = [
-    `આ ${currentLocation.nameGujarati} નો ઇતિહાસ શું છે?`,
-    `અહીં શું ખાવાનું પ્રખ્યાત છે?`,
-    `આગળનો રસ્તો કેવો છે કાકા?`,
-    `એક મસ્ત કાઠિયાવાડી દુહો કે કહેવત સંભળાવો!`,
-  ];
+  const send = (text?: string, mode?: KakaMode) => {
+    const query = (text ?? inputText).trim();
+    if (!query || isThinking) return;
+    onAsk(query, mode ?? activeMode);
+    setInputText('');
+  };
+
+  const pickMode = (chip: (typeof MODE_CHIPS)[number]) => {
+    setActiveMode(chip.mode);
+    const canned = chip.canned(currentLocation);
+    if (canned) send(canned, chip.mode);
+  };
+
+  const runTrip = async () => {
+    const req = tripRequest.trim() || 'ગુજરાતની એક મસ્ત સફર';
+    setTripBusy(true);
+    setTripPlan(null);
+    try {
+      const plan = await onGenerateTrip(req);
+      setTripPlan(plan);
+    } finally {
+      setTripBusy(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -214,11 +173,22 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
 
         {/* Chat Message List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900">
+          {messages.length === 0 && (
+            <div className="flex gap-2.5 justify-start">
+              <div className="w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400 flex items-center justify-center text-sm shrink-0">
+                👳🏽‍♂️
+              </div>
+              <div className="max-w-[80%] rounded-2xl rounded-bl-none p-3.5 shadow-md bg-slate-800 border border-amber-500/40 text-amber-50">
+                <p className="text-sm leading-relaxed">
+                  રામ રામ બાપા! હું તમારો કાનજી કાકો. અત્યારે આપણો છકડો {currentLocation.nameGujarati} ના
+                  રસ્તે મોજમાં દોડે છે. ઇતિહાસ, ખાણીપીણી, દુહો કે રસ્તાની વાત — જે પૂછવું હોય એ પૂછો!
+                </p>
+              </div>
+            </div>
+          )}
+
           {messages.map((m) => (
-            <div
-              key={m.id}
-              className={`flex gap-2.5 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+            <div key={m.id} className={`flex gap-2.5 ${m.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
               {m.sender === 'kaka' && (
                 <div className="w-8 h-8 rounded-full bg-amber-500/30 border border-amber-400 flex items-center justify-center text-sm shrink-0">
                   👳🏽‍♂️
@@ -241,10 +211,10 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
                 )}
 
                 <div className="flex items-center justify-between mt-1 text-[10px] text-slate-400">
-                  <span>{m.timestamp}</span>
+                  <span>{m.ts}</span>
                   {m.sender === 'kaka' && (
                     <button
-                      onClick={() => soundManager.speakGujaratiTextFallback(m.text)}
+                      onClick={() => voiceQueue.enqueue(m.text, { priority: 'high' })}
                       className="hover:text-amber-300 flex items-center gap-1"
                       title="ફરીથી સાંભળો"
                     >
@@ -257,33 +227,101 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
             </div>
           ))}
 
-          {isLoading && (
+          {isThinking && (
             <div className="flex gap-2 items-center text-amber-400 text-xs font-semibold animate-pulse">
-              <div className="w-8 h-8 rounded-full bg-amber-500/30 flex items-center justify-center text-sm">
-                👳🏽‍♂️
-              </div>
+              <div className="w-8 h-8 rounded-full bg-amber-500/30 flex items-center justify-center text-sm">👳🏽‍♂️</div>
               <div className="bg-slate-800 px-4 py-2 rounded-2xl border border-slate-700">
                 કાનજી કાકો વિચારી રહ્યા છે... 💭
               </div>
             </div>
           )}
+
+          {/* Trip generator panel */}
+          {tripOpen && (
+            <div className="rounded-2xl border border-amber-500/50 bg-slate-900/80 p-3.5 space-y-2.5">
+              <div className="flex items-center gap-2 text-amber-300 text-sm font-bold">
+                <MapIcon className="w-4 h-4" />
+                <span>કાકા સાથે સફર બનાવો</span>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tripRequest}
+                  onChange={(e) => setTripRequest(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && runTrip()}
+                  placeholder="દા.ત. અડધા દિવસનો ધાર્મિક પ્રવાસ"
+                  className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+                <button
+                  onClick={runTrip}
+                  disabled={tripBusy}
+                  className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 px-3 py-2 rounded-xl text-sm font-bold"
+                >
+                  {tripBusy ? '...' : 'બનાવો'}
+                </button>
+              </div>
+
+              {tripPlan && (
+                <div className="space-y-2 pt-1">
+                  <p className="text-sm text-amber-100 leading-relaxed">{tripPlan.introGujarati}</p>
+                  <ol className="space-y-1.5">
+                    {tripPlan.stops.map((s, i) => (
+                      <li key={s.locationId} className="text-xs text-slate-200 flex gap-2">
+                        <span className="font-black text-amber-400 shrink-0">{i + 1}.</span>
+                        <span>
+                          <span className="font-bold text-amber-200">{locName(s.locationId)}</span>
+                          {' — '}
+                          {s.reasonGujarati}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                  {tripPlan.stops.length > 0 && (
+                    <button
+                      onClick={() => {
+                        onStartTrip(tripPlan.stops.map((s) => s.locationId));
+                        onClose();
+                      }}
+                      className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black py-2 rounded-xl text-sm mt-1"
+                    >
+                      ચાલો! ({tripPlan.stops.length} સ્થળ)
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div ref={chatEndRef} />
         </div>
 
-        {/* Quick Suggestion Chips */}
+        {/* Mode chips */}
         <div className="p-2.5 bg-slate-950 border-t border-slate-800 flex gap-2 overflow-x-auto no-scrollbar">
-          {quickPrompts.map((qp, i) => (
+          {MODE_CHIPS.map((chip) => (
             <button
-              key={i}
-              onClick={() => handleSendMessage(qp)}
-              className="whitespace-nowrap px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-xs font-medium border border-slate-700 transition-colors shrink-0"
+              key={chip.mode}
+              onClick={() => pickMode(chip)}
+              className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors shrink-0 ${
+                activeMode === chip.mode
+                  ? 'bg-amber-500 text-slate-950 border-amber-400'
+                  : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-amber-300 border-slate-700'
+              }`}
             >
-              {qp}
+              {chip.label}
             </button>
           ))}
+          <button
+            onClick={() => setTripOpen((v) => !v)}
+            className={`whitespace-nowrap px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors shrink-0 ${
+              tripOpen
+                ? 'bg-emerald-500 text-slate-950 border-emerald-400'
+                : 'bg-slate-800 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 border-slate-700'
+            }`}
+          >
+            🗺️ સફર બનાવો
+          </button>
         </div>
 
-        {/* Mic error notice — local, dismissible (replaces the old blocking dialog) */}
         {micError && (
           <div
             role="alert"
@@ -307,9 +345,7 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
             id="kaka-mic-btn"
             onClick={toggleListening}
             className={`p-3 rounded-2xl transition-all shadow ${
-              isListening
-                ? 'bg-red-500 text-white animate-bounce'
-                : 'bg-slate-800 text-amber-400 hover:bg-slate-700'
+              isListening ? 'bg-red-500 text-white animate-bounce' : 'bg-slate-800 text-amber-400 hover:bg-slate-700'
             }`}
             title="ગુજરાતીમાં બોલીને પૂછો (Microphone)"
           >
@@ -321,15 +357,15 @@ export const KanjiKakaGuide: React.FC<KanjiKakaGuideProps> = ({
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+            onKeyDown={(e) => e.key === 'Enter' && send()}
             placeholder="કાનજી કાકાને ગુજરાતીમાં કંઈપણ પૂછો..."
             className="flex-1 bg-slate-950 border border-slate-700 rounded-2xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
           />
 
           <button
             id="kaka-send-btn"
-            onClick={() => handleSendMessage()}
-            disabled={!inputText.trim() || isLoading}
+            onClick={() => send()}
+            disabled={!inputText.trim() || isThinking}
             className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-slate-950 p-3 rounded-2xl font-bold transition-transform active:scale-95 shadow"
           >
             <Send className="w-5 h-5" />
