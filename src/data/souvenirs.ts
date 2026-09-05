@@ -89,4 +89,15 @@ export const GUJARATI_SOUVENIRS: SouvenirItem[] = [
     descriptionGujarati: 'શત્રુંજય તીર્થ અને સૌરાષ્ટ્રના મંદિરોમાં ગૂંજતી મધુર ધ્વનિવાળી શુદ્ધ પિત્તળની ઘંટડી.',
     acquired: false,
   },
+  {
+    id: 'svpia_brass_airliner',
+    nameGujarati: 'અમદાવાદ એરપોર્ટ વિન્ટેજ બોઇંગ/એરબસ મોડેલ',
+    nameEnglish: 'SVPIA Aviator Brass Jet Model',
+    region: 'મધ્ય ગુજરાત',
+    locationId: 'ahmedabad_airport',
+    priceCoins: 300,
+    iconEmoji: '✈️',
+    descriptionGujarati: 'સરદાર વલ્લભભાઈ પટેલ ઈન્ટરનેશનલ એરપોર્ટની યાદગીરી રૂપે પિત્તળનું વિમાન મોડેલ.',
+    acquired: false,
+  },
 ];

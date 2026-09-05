@@ -24,6 +24,11 @@ describe('evaluateAchievements', () => {
       .toContain('ach_foodie');
   });
 
+  it('unlocks the airport achievement when Ahmedabad Airport is visited', () => {
+    expect(evaluateAchievements({ visitedLocations: ['ahmedabad_airport'], discoveredFoods: [] }))
+      .toContain('ach_svpia_airport');
+  });
+
   it('unlocks the grand explorer at 16 visited locations', () => {
     const visited = Array.from({ length: 16 }, (_, i) => `loc_${i}`);
     expect(evaluateAchievements({ visitedLocations: visited, discoveredFoods: [] }))

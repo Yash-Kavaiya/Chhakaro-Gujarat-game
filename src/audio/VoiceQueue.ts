@@ -104,8 +104,23 @@ function speakViaWebSpeech(text: string): Promise<void> {
       utterance.lang = 'gu-IN';
       utterance.rate = 0.95;
       utterance.pitch = 1.05;
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
+
+      let settled = false;
+      const done = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+
+      utterance.onend = done;
+      utterance.onerror = done;
+
+      // Safety timeout in case speechSynthesis hangs on background tabs or system sleep
+      const wordCount = text.split(/\s+/).length;
+      const maxDurationMs = Math.max(3000, Math.min(15000, wordCount * 500));
+      setTimeout(done, maxDurationMs);
+
       window.speechSynthesis.speak(utterance);
     } catch {
       resolve();

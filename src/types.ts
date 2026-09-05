@@ -54,6 +54,7 @@ export interface LocationData {
     | 'salt_desert'
     | 'monument'
     | 'city'
+    | 'airport'
     | 'hillstation'
     | 'heritage_stepwell'
     | 'jain_temple_hill'

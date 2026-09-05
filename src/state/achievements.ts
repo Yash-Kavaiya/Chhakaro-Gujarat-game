@@ -20,6 +20,7 @@ export function evaluateAchievements(input: AchievementInput): string[] {
   if (has('dholavira')) out.push('ach_road_to_heaven');
   if (all(UNESCO)) out.push('ach_unesco_master');
   if (has('gir')) out.push('ach_gir_lion');
+  if (has('ahmedabad_airport')) out.push('ach_svpia_airport');
   if (all(PILGRIM)) out.push('ach_pilgrim');
   if (f.length >= 6) out.push('ach_foodie');
   if (v.length >= 16) out.push('ach_all_gujarat');

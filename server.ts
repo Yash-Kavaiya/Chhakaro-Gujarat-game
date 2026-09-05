@@ -17,12 +17,38 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// Lazy-initialized Gemini client with telemetry header
+// Lazy-initialized Gemini client with telemetry header & validation
 let aiClient: GoogleGenAI | null = null;
+let lastApiKey: string | undefined = undefined;
+let isKeyMarkedInvalid = false;
+
+function isValidApiKey(key?: string): boolean {
+  if (!key) return false;
+  const trimmed = key.trim();
+  if (
+    !trimmed ||
+    trimmed === 'MY_GEMINI_API_KEY' ||
+    trimmed === 'YOUR_API_KEY' ||
+    trimmed === 'undefined' ||
+    trimmed === 'null' ||
+    trimmed === 'PLACEHOLDER' ||
+    trimmed.length < 10
+  ) {
+    return false;
+  }
+  return true;
+}
+
 function getAI(): GoogleGenAI | null {
-  if (!aiClient && process.env.GEMINI_API_KEY) {
+  const currentKey = process.env.GEMINI_API_KEY?.trim();
+  if (!isValidApiKey(currentKey)) {
+    return null;
+  }
+  if (currentKey !== lastApiKey) {
+    lastApiKey = currentKey;
+    isKeyMarkedInvalid = false;
     aiClient = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
+      apiKey: currentKey!,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build',
@@ -30,7 +56,27 @@ function getAI(): GoogleGenAI | null {
       },
     });
   }
+  if (isKeyMarkedInvalid) {
+    return null;
+  }
   return aiClient;
+}
+
+function handleAiApiError(err: any, endpointName: string) {
+  const errMsg = err?.message || String(err || '');
+  const isKeyError =
+    errMsg.includes('API_KEY_INVALID') ||
+    errMsg.includes('API key not valid') ||
+    errMsg.includes('API_KEY') ||
+    err?.status === 400 ||
+    err?.code === 400;
+
+  if (isKeyError) {
+    isKeyMarkedInvalid = true;
+    console.warn(`[Gemini API] Invalid or unconfigured API key during ${endpointName}. Gracefully switching to authentic Gujarati local guide engine.`);
+  } else {
+    console.warn(`[Gemini API] ${endpointName} request notice:`, errMsg);
+  }
 }
 
 // Personality modes that shape Kaka's tone for a reply.
@@ -260,7 +306,7 @@ app.post('/api/gemini/guide', async (req, res) => {
 `;
 
     // Multi-model fallback sequence to handle temporary 503 high-demand spikes
-    const candidateModels = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.7-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let rawText = '';
 
     for (const modelName of candidateModels) {
@@ -277,7 +323,8 @@ app.post('/api/gemini/guide', async (req, res) => {
         rawText = response.text || '';
         if (rawText) break;
       } catch (err: any) {
-        console.warn(`Model ${modelName} call failed (attempting fallback):`, err?.message || err);
+        handleAiApiError(err, `Guide (${modelName})`);
+        if (isKeyMarkedInvalid) break;
       }
     }
 
@@ -295,11 +342,10 @@ app.post('/api/gemini/guide', async (req, res) => {
       return res.json(parsed);
     }
 
-    // All models under load / failed — serve the smart contextual Gujarati fallback.
-    console.warn('All Gemini models temporarily unavailable, serving smart local guide fallback');
+    // All models under load / failed / invalid key — serve the smart contextual Gujarati fallback.
     return res.json(localFallback());
   } catch (error: any) {
-    console.error('Gemini guide unexpected handler error:', error);
+    handleAiApiError(error, 'Guide overall handler');
     return res.json(localFallback());
   }
 });
@@ -336,7 +382,7 @@ ${idList}
 
     const userMessage = `${zoneLine}\nવિનંતી: "${requestText || 'ગુજરાતની એક મસ્ત સફર'}"`;
 
-    const candidateModels = ['gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.1-flash-lite'];
+    const candidateModels = ['gemini-3.7-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
     let rawText = '';
     for (const modelName of candidateModels) {
       try {
@@ -348,7 +394,8 @@ ${idList}
         rawText = response.text || '';
         if (rawText) break;
       } catch (err: any) {
-        console.warn(`Trip model ${modelName} failed (attempting fallback):`, err?.message || err);
+        handleAiApiError(err, `Trip (${modelName})`);
+        if (isKeyMarkedInvalid) break;
       }
     }
 
@@ -384,10 +431,9 @@ ${idList}
       }
     }
 
-    console.warn('Trip generation empty/invalid, serving local planner');
     return serveLocal();
   } catch (err: any) {
-    console.error('Trip endpoint unexpected error:', err);
+    handleAiApiError(err, 'Trip overall handler');
     return serveLocal();
   }
 });
@@ -423,7 +469,7 @@ app.post('/api/gemini/tts', async (req, res) => {
 
     res.json({ audio: base64Audio });
   } catch (err: any) {
-    console.warn('TTS high demand or unavailable, falling back to Web Speech Synthesis:', err?.message || err);
+    handleAiApiError(err, 'TTS');
     res.json({ audio: null, useFallback: true });
   }
 });

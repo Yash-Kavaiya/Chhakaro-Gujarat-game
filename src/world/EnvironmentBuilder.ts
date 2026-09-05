@@ -65,6 +65,16 @@ export class EnvironmentBuilder {
   public animatableWindmills: THREE.Group[] = [];
   public animatableSmokePuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
   public animatableSteamPuffs: { mesh: THREE.Mesh; startY: number; maxOffset: number; speed: number }[] = [];
+  public animatableRadars: THREE.Group[] = [];
+  public animatableAirplanes: {
+    group: THREE.Group;
+    speed: number;
+    radius: number;
+    baseAlt: number;
+    angle: number;
+    strobeTimer: number;
+    strobeLights: THREE.Mesh[];
+  }[] = [];
 
   // Toll-plaza boom barriers — pivot Groups whose origin is the hinge; start horizontal
   // (rotation.z = 0). GameWorld.payToll() tweens rotation.z to -Math.PI/2 to raise one.
@@ -743,6 +753,9 @@ export class EnvironmentBuilder {
         break;
       case 'dandi':
         this.buildDandiSaltMemorial(landmarkGroup);
+        break;
+      case 'ahmedabad_airport':
+        this.buildAhmedabadAirport(landmarkGroup);
         break;
       case 'rajkot':
       default:
@@ -1721,6 +1734,31 @@ export class EnvironmentBuilder {
         const scale = 1.0 + progress * 1.6;
         steam.mesh.scale.set(scale, scale, scale);
         (steam.mesh.material as THREE.MeshStandardMaterial).opacity = 0.6 * (1 - progress);
+      }
+    }
+
+    // 4. Rotate Airport ATC Tower Radars
+    for (const radar of this.animatableRadars) {
+      radar.rotation.y += delta * 2.2;
+    }
+
+    // 5. Animate In-Flight Commercial Aircraft circling Ahmedabad Airport
+    for (const plane of this.animatableAirplanes) {
+      plane.angle += delta * plane.speed;
+      const px = Math.cos(plane.angle) * plane.radius;
+      const pz = -40 + Math.sin(plane.angle) * plane.radius;
+      const py = plane.baseAlt + Math.sin(plane.angle * 2) * 5;
+      plane.group.position.set(px, py, pz);
+
+      // Tangent heading orientation in direction of flight
+      plane.group.rotation.y = -plane.angle;
+      plane.group.rotation.z = 0.12; // Bank angle into circle
+
+      // Wingtip strobe flash
+      plane.strobeTimer += delta;
+      const isFlash = Math.floor(plane.strobeTimer * 3.5) % 2 === 0;
+      for (const st of plane.strobeLights) {
+        st.visible = isFlash;
       }
     }
   }
