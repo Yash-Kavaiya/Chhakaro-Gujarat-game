@@ -49,6 +49,7 @@ export interface TrafficEntity {
   
   // Behavioral flags
   shoulderYieldOffset?: number;
+  reactUntil?: number; // performance.now() timestamp until which a player-yield (shoulder + slowdown) is held
 }
 
 export class TrafficSystem {
@@ -1293,8 +1294,9 @@ export class TrafficSystem {
   // ==========================================
   // ROAD FOLLOWING PHYSICS & TRAFFIC UPDATE
   // ==========================================
-  public update(delta: number, chhakaroPos: THREE.Vector3, isHornActive: boolean) {
+  public update(delta: number, chhakaroPos: THREE.Vector3, isHornActive: boolean, playerHeading: number = 0) {
     const time = Date.now() * 0.001;
+    const now = performance.now();
 
     for (let i = 0; i < this.entities.length; i++) {
       const entity = this.entities[i];
@@ -1345,19 +1347,51 @@ export class TrafficSystem {
         }
       }
 
-      // Check distance to player's Chhakaro
-      const distToPlayer = entity.group.position.distanceTo(chhakaroPos);
-      if (distToPlayer < entity.length + 10.0) {
-        // Slow down if directly approaching Chhakaro
-        targetSpeed = Math.min(targetSpeed, 6.0);
+      // ── Heading-aware reactions to the player's Chhakaro ──
+      const apx = chhakaroPos.x - entity.group.position.x;
+      const apz = chhakaroPos.z - entity.group.position.z;
+      const distToPlayer = Math.hypot(apx, apz);
+
+      // Player forward unit vector (matches GameWorld.updatePhysics convention)
+      const pfx = -Math.sin(playerHeading);
+      const pfz = -Math.cos(playerHeading);
+
+      // 1. Agent is AHEAD of the player and inside the player's path → the player is
+      //    bearing down on it, so brake. dot(playerForward, player→agent) > 0 is
+      //    equivalent to -(pfx*apx + pfz*apz) > 0 (agent→player points backwards).
+      if (-(pfx * apx + pfz * apz) > 0 && distToPlayer < 22) {
+        // perpendicular distance of the agent from the player's path line (unit-vec 2D cross)
+        const pathPerp = Math.abs(apz * pfx - apx * pfz);
+        if (pathPerp < 4.0) {
+          targetSpeed = Math.min(targetSpeed, distToPlayer < 12 ? 0.5 : 4.0);
+        }
       }
 
-      // Horn reaction: slower vehicles (tractors, autos) yield slightly to outer shoulder
-      if (distToPlayer < 25 && isHornActive) {
-        entity.shoulderYieldOffset = 0.8;
-      } else {
-        entity.shoulderYieldOffset = 0;
+      // 2. Player is AHEAD of the agent and in the agent's lane → the player is
+      //    overtaking, so the agent yields to the outer shoulder for ~1.5 s.
+      const afx = -Math.sin(entity.group.rotation.y);
+      const afz = -Math.cos(entity.group.rotation.y);
+      if (afx * apx + afz * apz > 0 && distToPlayer < 20) {
+        const lanePerp = Math.abs(apx * afz - apz * afx);
+        if (lanePerp < 3.5) {
+          entity.reactUntil = now + 1500;
+        }
       }
+
+      // 3. Resolve the shoulder-yield offset & pass-decay for this frame. Horn yield and
+      //    the overtake yield coexist — take the larger offset. Offset is rebuilt from 0
+      //    every frame so agents never stay crabbed onto the shoulder.
+      let shoulderYield = 0;
+      if (distToPlayer < 25 && isHornActive) {
+        shoulderYield = 0.8;
+      }
+      if (entity.reactUntil !== undefined && now < entity.reactUntil) {
+        shoulderYield = Math.max(shoulderYield, 1.2);
+        targetSpeed *= 0.7; // ease back rather than snap to lane speed the instant the player clears
+      } else if (entity.reactUntil !== undefined) {
+        entity.reactUntil = undefined;
+      }
+      entity.shoulderYieldOffset = shoulderYield;
 
       // Smooth acceleration / braking
       entity.currentSpeed += (targetSpeed - entity.currentSpeed) * Math.min(1.0, delta * 3.5);

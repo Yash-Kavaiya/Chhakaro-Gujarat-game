@@ -4,10 +4,29 @@ import { EnvironmentBuilder } from './EnvironmentBuilder';
 import { TimeOfDaySystem } from './TimeOfDaySystem';
 import { NPCSystem } from './NPCSystem';
 import { TrafficSystem } from './TrafficSystem';
-import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { IncidentDirector } from './IncidentDirector';
+import { IncidentSpawn } from '../state/incidents';
+import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
+import { PETROL_PUMPS, AUTO_GARAGES, TOLL_PLAZA } from '../data/roadsidePlacements';
 import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
 import { soundManager } from '../audio/SoundManager';
+import { pickWeather, weatherParams, WeatherParams } from '../state/weatherDirector';
+import {
+  Gear,
+  autoGear,
+  autoGearUnderThrottle,
+  accelMultiplier,
+  gearMaxSpeed,
+  shiftUp as shiftGearUp,
+  shiftDown as shiftGearDown,
+  canStartEngine,
+  FORWARD_GEARS,
+} from '../state/transmission';
+
+// Gir Forest zone centre — hoisted so the per-frame speed-cap distance check in updatePhysics
+// doesn't allocate a new Vector3 every frame.
+const GIR_CENTER_VEC = new THREE.Vector3(150, 0, 550);
 
 export class GameWorld {
   public container: HTMLElement;
@@ -19,6 +38,7 @@ export class GameWorld {
   public timeOfDaySystem: TimeOfDaySystem;
   public npcSystem: NPCSystem;
   public trafficSystem: TrafficSystem;
+  public incidentDirector: IncidentDirector;
 
   // Lighting & Sky
   public dirLight: THREE.DirectionalLight;
@@ -37,6 +57,22 @@ export class GameWorld {
   public isHazardOn: boolean = false;
   public currentCameraMode: CameraMode = 'chase';
   public currentWeather: WeatherType = 'sunny';
+
+  // Region/time weather. `weatherParamsCache` holds the driving numbers for `currentWeather`
+  // (refreshed in setWeather); the WeatherDirector re-picks at ~2 Hz in animate(). A HUD
+  // toggle stamps `manualOverrideUntilDistance` so the manual pick wins for one cycle-distance
+  // before the director resumes.
+  private weatherParamsCache: WeatherParams = weatherParams('sunny');
+  public manualWeatherOverride: WeatherType | null = null;
+  private manualOverrideUntilDistance = 0;
+  private lastWeatherEvalAt = 0;
+  // True while setWeather() (a 'sunset'/'night' pick) is what put the clock in manual mode, so
+  // the next non-frozen weather can safely resume 'auto' without stomping a player's own freeze.
+  private weatherFrozeTheClock = false;
+
+  // Transmission
+  public transmissionMode: TransmissionMode = 'auto';
+  public currentGear: Gear = 'N';
 
   // Vehicle Health & Fuel
   public healthState: VehicleHealthState = {
@@ -68,6 +104,12 @@ export class GameWorld {
   public nearbyEncounter: RoadsideEncounter | null = null;
   public totalDistanceDriven: number = 0; // in meters
 
+  // Highway toll: once paid, the toll prompt stays suppressed until the odometer passes this
+  // stamp (payToll sets it to totalDistanceDriven + 300 m). tollBoomTweenT drives the boom
+  // raise (null = not tweening; 0..1 while raising; back to null and left up when done).
+  public tollPaidUntilDistance = 0;
+  private tollBoomTweenT: number | null = null;
+
   // Handlers / Callbacks
   public onLandmarkApproach?: (location: LocationData) => void;
   public onLocationChange?: (location: LocationData) => void;
@@ -76,7 +118,11 @@ export class GameWorld {
   public onTimeOfDayUpdate?: (timeState: TimeOfDayState) => void;
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
+  public onTollApproach?: (toll: { name: string } | null) => void;
   public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
+  public onGearChange?: (gear: Gear) => void;
+  public onWeatherChange?: (weather: WeatherType) => void;
+  public onIncident?: (i: IncidentSpawn) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
@@ -89,17 +135,21 @@ export class GameWorld {
     handbrake: false,
     horn: false,
     headlight: true,
+    shiftUp: false,
+    shiftDown: false,
   };
 
   constructor(
     container: HTMLElement,
     customization: ChhakaroCustomization,
     initialDistanceMeters = 0,
+    transmissionMode: TransmissionMode = 'auto',
   ) {
     this.container = container;
     this.clock = new THREE.Clock();
     // Resume: seed the odometer so totalKm doesn't snap to 0 on the first frame.
     this.totalDistanceDriven = initialDistanceMeters;
+    this.transmissionMode = transmissionMode;
 
     // 1. Scene setup
     this.scene = new THREE.Scene();
@@ -158,6 +208,11 @@ export class GameWorld {
     this.environmentBuilder = new EnvironmentBuilder(this.scene);
     this.environmentBuilder.buildFullWorld(GUJARAT_LOCATIONS);
 
+    // Console/QA hook: world instance handle for debugging and tooling.
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __CHHAKARO__?: GameWorld }).__CHHAKARO__ = this;
+    }
+
     // 7. Spawn Animated Gujarati Pedestrian NPCs
     this.npcSystem = new NPCSystem(this.scene);
     this.npcSystem.spawnAllNPCs(GUJARAT_LOCATIONS);
@@ -165,6 +220,9 @@ export class GameWorld {
     // 8. Spawn Dynamic Gujarati Road Traffic (ST Buses, Tractors, Autos, Cows, Bikes)
     this.trafficSystem = new TrafficSystem(this.scene);
     this.trafficSystem.spawnTraffic(GUJARAT_LOCATIONS);
+
+    // 8b. Procedural road incidents (cattle crossings, stalled trucks, slow tractors, puddles)
+    this.incidentDirector = new IncidentDirector(this.scene);
 
     // 9. Spawn Chhakaro Model
     this.chhakaro = new ChhakaroModel(customization);
@@ -241,20 +299,49 @@ export class GameWorld {
     return this.isHazardOn;
   }
 
+  /**
+   * Pay the highway toll: kick off the boom-gate raise tween (~0.8 s, advanced in animate())
+   * and stamp a 300 m suppression window so checkFacilityProximity() stops re-prompting.
+   * The gate stays up for the rest of the M3 session — it never lowers again.
+   */
+  public payToll(): void {
+    this.tollBoomTweenT = 0;
+    this.tollPaidUntilDistance = this.totalDistanceDriven + 300;
+  }
+
   public setWeather(weather: WeatherType) {
     this.currentWeather = weather;
+    this.weatherParamsCache = weatherParams(weather);
 
+    // 'sunset'/'night' freeze the time-of-day clock at that phase; any other weather resumes
+    // the live distance-based cycle — but ONLY if it was this method that froze it. Otherwise
+    // a manual 'night' pick followed by an autonomous rain/fog pick would strand the clock at
+    // night forever, while blindly resuming would cancel a player's own "Freeze Day" toggle.
     if (weather === 'sunset') {
       this.timeOfDaySystem.setManualPhase('sunset');
+      this.weatherFrozeTheClock = true;
     } else if (weather === 'night') {
       this.timeOfDaySystem.setManualPhase('night');
-    } else if (weather === 'sunny') {
+      this.weatherFrozeTheClock = true;
+    } else if (this.weatherFrozeTheClock) {
       this.timeOfDaySystem.setManualPhase('auto'); // Resume smooth distance based cycle
+      this.weatherFrozeTheClock = false;
     }
 
     if (this.rainParticles) {
-      (this.rainParticles.material as THREE.PointsMaterial).opacity = weather === 'rain' ? 0.65 : 0;
+      (this.rainParticles.material as THREE.PointsMaterial).opacity = this.weatherParamsCache.rainOpacity;
     }
+
+    // Keep React (HUD icon, Kaka context) in step when the director re-picks the weather.
+    this.onWeatherChange?.(weather);
+  }
+
+  /** HUD weather button: force a weather and make it stick for ~one cycle-distance (1400 m of
+   *  driving) before the WeatherDirector resumes region/time control. */
+  public setManualWeather(weather: WeatherType) {
+    this.manualWeatherOverride = weather;
+    this.manualOverrideUntilDistance = this.totalDistanceDriven + 1400;
+    this.setWeather(weather);
   }
 
   public setTimeOfDayPhase(phase: 'auto' | 'sunrise' | 'day' | 'sunset' | 'night') {
@@ -263,6 +350,24 @@ export class GameWorld {
 
   public setTimeFreezeMode(mode: TimeFreezeMode) {
     this.timeOfDaySystem.setFreezeMode(mode);
+  }
+
+  /** Skip the day/night phase forward by N virtual hours ("rest till morning"). */
+  public advanceTimeOfDay(hours: number) {
+    this.timeOfDaySystem.advanceTimeOfDay(hours);
+  }
+
+  /** Skip the day/night phase forward to the next occurrence of `targetHour` (0–23), computed
+   *  from the live phase clock. "Rest till morning" calls this with 6. */
+  public advanceToHour(targetHour: number) {
+    this.timeOfDaySystem.advanceToHour(targetHour);
+  }
+
+  /** Clear the "weather froze the clock" latch. setTimeFreezeMode('dynamic') resumes the live
+   *  cycle but leaves this private flag stale; callers that explicitly unfreeze (e.g. Rest)
+   *  clear it here so a later autonomous weather pick doesn't wrongly resume-from-frozen. */
+  public clearWeatherClockFreeze() {
+    this.weatherFrozeTheClock = false;
   }
 
   public toggleFreezeDay(): boolean {
@@ -283,6 +388,56 @@ export class GameWorld {
   public startVehicleEngine() {
     this.isEngineOn = true;
     soundManager.startEngine();
+  }
+
+  private emitGear() {
+    this.onGearChange?.(this.currentGear);
+  }
+
+  /** Switch gearbox behaviour. In auto we immediately resolve the gear for the current speed. */
+  public setTransmissionMode(mode: TransmissionMode) {
+    this.transmissionMode = mode;
+    if (mode === 'auto') {
+      this.currentGear = autoGear(this.speed, this.currentGear);
+    }
+    this.emitGear();
+  }
+
+  /** Manual shift up one gear on the R,N,1..4 ladder (no-op in auto). */
+  public shiftUp() {
+    if (this.transmissionMode !== 'manual') return;
+    this.currentGear = shiftGearUp(this.currentGear);
+    this.emitGear();
+  }
+
+  /** Manual shift down one gear on the R,N,1..4 ladder (no-op in auto). */
+  public shiftDown() {
+    if (this.transmissionMode !== 'manual') return;
+    this.currentGear = shiftGearDown(this.currentGear);
+    this.emitGear();
+  }
+
+  /** Start / stop the engine, honouring the manual "standstill in N or R" rule.
+   *  Returns the resulting engine state. A refused start leaves the engine off and gives a
+   *  single horn toot as the "won't start" cue. */
+  public toggleEngine(): boolean {
+    if (this.isEngineOn) {
+      // Refuse to kill the engine while rolling — updatePhysics early-returns when the engine
+      // is off, which would freeze the vehicle at speed and strand the HUD on its last reading.
+      if (Math.abs(this.speed) > 1) {
+        soundManager.playHorn(1);
+        return true;
+      }
+      this.isEngineOn = false;
+      soundManager.stopEngine();
+      return false;
+    }
+    if (!canStartEngine(this.transmissionMode, this.currentGear, this.speed)) {
+      soundManager.playHorn(1);
+      return false;
+    }
+    this.startVehicleEngine();
+    return true;
   }
 
   public updateCustomization(custom: ChhakaroCustomization) {
@@ -309,9 +464,11 @@ export class GameWorld {
     this.chhakaro.group.position.copy(this.vehiclePos);
     this.chhakaro.group.rotation.y = this.vehicleRotation;
 
-    // Adapt weather to region
-    if (loc.id === 'saputara') this.setWeather('rain');
-    else if (loc.id === 'kutch') this.setWeather('sunset');
+    // Adapt weather to region. Route through setManualWeather so the arrival look holds for a
+    // stretch before the WeatherDirector (which also knows these regions) resumes control —
+    // otherwise the ~2 Hz re-pick would fight the teleport the same second.
+    if (loc.id === 'saputara') this.setManualWeather('rain');
+    else if (loc.id === 'kutch') this.setManualWeather('fog');
     else if (loc.id === 'dwarka' || loc.id === 'somnath') soundManager.playTempleBell();
 
     if (this.onLocationChange) this.onLocationChange(loc);
@@ -409,25 +566,57 @@ export class GameWorld {
     this.healthState.isOverheating = this.healthState.engineTempCelsius > 110;
 
     // Gir Forest Mode speed cap (25 km/h) to protect Asiatic lions & wildlife
-    const distToGir = this.vehiclePos.distanceTo(new THREE.Vector3(150, 0, 550));
+    const distToGir = this.vehiclePos.distanceTo(GIR_CENTER_VEC);
     if (distToGir < 160) {
       maxForwardSpeed = Math.min(maxForwardSpeed, 25);
     }
 
-    // Saputara Rain grip modifier
-    if (this.currentWeather === 'rain') {
-      acceleration *= 0.75;
-      friction *= 0.65;
+    // Crawl through an active road incident (cattle on the road, stalled truck, etc.)
+    if (this.incidentDirector.playerMustSlow) {
+      maxForwardSpeed = Math.min(maxForwardSpeed, 12);
     }
 
+    // Region/time weather grip: rain slashes accel & braking authority, coastal/dust fog
+    // trims it slightly (see weatherParams). Applied to both so the cart both accelerates
+    // and stops worse on a wet Saputara ghat.
+    acceleration *= this.weatherParamsCache.gripMultiplier;
+    friction *= this.weatherParamsCache.gripMultiplier;
+    // Kutch dust storm: a faint, constant sideways drift on the little three-wheeler.
+    // `windPushX` is zone-agnostic in weatherParams; the shove only makes sense in the Rann,
+    // so gate it to Kutch (sea fog on the coast should not push the vehicle).
+    if (this.currentLocation.id === 'kutch') {
+      this.vehiclePos.x += this.weatherParamsCache.windPushX * delta * 0.1;
+    }
+
+    // Transmission — gear-aware torque + per-gear speed ceiling.
+    // autoGear() upshifts strictly above the band max while the clamp below pins speed
+    // *exactly* at that max, so under throttle we resolve the gear against the pre-clamp
+    // next-frame speed (`acceleration * delta`, the very step the accel branch applies) —
+    // otherwise an automatic deadlocks on the gear-1 ceiling (18 km/h).
+    if (this.transmissionMode === 'auto') {
+      this.currentGear = autoGearUnderThrottle(
+        this.speed, this.currentGear, this.controls.forward, acceleration * delta,
+      );
+    } // manual: this.currentGear is set by shiftUp/shiftDown
+    const gearMult = accelMultiplier(this.currentGear, Math.abs(this.speed), this.transmissionMode);
+    acceleration *= gearMult;
+    maxForwardSpeed = Math.min(maxForwardSpeed, gearMaxSpeed(this.currentGear));
+    if (this.currentGear === 'N') { acceleration = 0; }
+    this.emitGear();
+
     // 1. Acceleration & Braking
+    // Manual mode only pulls forward with a forward gear engaged ('1'..'4'); throttle in
+    // 'N'/'R' just coasts. Reverse-from-standstill is already gated to R (auto is unaffected),
+    // and the `speed > 1` brake sub-case stays shared across every mode.
+    const forwardGearEngaged =
+      this.transmissionMode !== 'manual' || FORWARD_GEARS.includes(this.currentGear);
     const isAccelerating = this.controls.forward;
-    if (this.controls.forward) {
+    if (this.controls.forward && forwardGearEngaged) {
       this.speed = Math.min(this.speed + acceleration * delta, maxForwardSpeed);
     } else if (this.controls.backward) {
       if (this.speed > 1) {
         this.speed = Math.max(this.speed - brakeForce * delta, 0);
-      } else {
+      } else if (this.transmissionMode === 'auto' || this.currentGear === 'R') {
         this.speed = Math.max(this.speed - acceleration * 0.7 * delta, maxReverseSpeed);
       }
     } else if (this.controls.handbrake) {
@@ -530,13 +719,11 @@ export class GameWorld {
   }
 
   private checkFacilityProximity() {
+    // Single source of truth with EnvironmentBuilder's 3D props (roadsidePlacements.ts)
     const facilities: { type: 'petrol' | 'garage' | 'toll'; name: string; x: number; z: number }[] = [
-      { type: 'petrol', name: '⛽ શ્રી ગણેશ પેટ્રોલિયમ (HP)', x: 220, z: 80 },
-      { type: 'petrol', name: '⛽ ખોડિયાર પેટ્રોલિયમ (IndianOil)', x: -120, z: -160 },
-      { type: 'petrol', name: '⛽ ગીર હાઇવે પેટ્રોલિયમ', x: 100, z: 460 },
-      { type: 'garage', name: '🔧 રણછોડ ઓટો ગેરેજ & પંચર', x: 180, z: 50 },
-      { type: 'garage', name: '🔧 બાલાજી છકડો સર્વિસ સેન્ટર', x: -80, z: 200 },
-      { type: 'toll', name: '🛣️ રાષ્ટ્રીય ધોરીમાર્ગ ટોલ પ્લાઝા', x: 300, z: 100 },
+      ...PETROL_PUMPS.map((f) => ({ type: 'petrol' as const, name: f.name, x: f.spot.x, z: f.spot.z })),
+      ...AUTO_GARAGES.map((g) => ({ type: 'garage' as const, name: g.name, x: g.spot.x, z: g.spot.z })),
+      { type: 'toll' as const, name: TOLL_PLAZA.name, x: TOLL_PLAZA.spot.x, z: TOLL_PLAZA.spot.z },
     ];
 
     let nearest: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null = null;
@@ -552,8 +739,19 @@ export class GameWorld {
 
     if (nearest !== this.nearbyFacility) {
       this.nearbyFacility = nearest;
-      if (this.onFacilityApproach) {
-        this.onFacilityApproach(nearest);
+
+      const isToll = nearest?.type === 'toll';
+      const tollDue = isToll && this.totalDistanceDriven >= this.tollPaidUntilDistance;
+
+      if (tollDue && nearest) {
+        // Toll owns the prompt while a fee is due — keep the generic petrol/garage pill hidden.
+        this.onTollApproach?.({ name: nearest.name });
+        this.onFacilityApproach?.(null);
+      } else {
+        // Not a toll, or the toll's already paid within the 300 m window — clear the toll
+        // prompt and route petrol/garage through the generic facility pill exactly as before.
+        this.onTollApproach?.(null);
+        this.onFacilityApproach?.(isToll ? null : nearest);
       }
     }
   }
@@ -675,6 +873,34 @@ export class GameWorld {
     // Update smooth distance-based time of day & lighting
     const timeState = this.timeOfDaySystem.update(this.totalDistanceDriven, this.vehiclePos, this.currentWeather);
     this.currentTimeOfDayState = timeState;
+
+    // Region/time weather — re-picked at ~2 Hz off the pure WeatherDirector (needs the fresh
+    // phase, so this runs after the time-of-day update). A HUD override wins until the player
+    // has driven the stamped stretch, then the director resumes.
+    const nowMs = performance.now();
+    if (nowMs - this.lastWeatherEvalAt > 500) {
+      this.lastWeatherEvalAt = nowMs;
+      const overrideActive = this.totalDistanceDriven < this.manualOverrideUntilDistance;
+      if (!overrideActive) this.manualWeatherOverride = null; // window elapsed — don't keep a stale pick
+      const next = pickWeather({
+        zoneId: this.currentLocation.id,
+        phase: timeState.phase,
+        distanceDriven: this.totalDistanceDriven,
+        manualOverride: overrideActive ? this.manualWeatherOverride : null,
+      });
+      if (next !== this.currentWeather) this.setWeather(next);
+    }
+
+    // T7 Ruling: WeatherDirector owns scene.fog.density — but as a FLOOR, not a clamp.
+    // TimeOfDaySystem already wrote its computed density (the day→night haze ramp) to
+    // scene.fog.density this same frame just above; weather can only thicken it, so the
+    // night ramp survives while fog (0.011) / rain (0.005) still win when they're heavier.
+    if (this.scene.fog instanceof THREE.FogExp2) {
+      this.scene.fog.density = Math.max(this.scene.fog.density, this.weatherParamsCache.fogDensity);
+    }
+
+    // Light up city windows / street lamps at night; bloom the coastal aarti glow at dusk
+    this.environmentBuilder.setNightFactor(THREE.MathUtils.clamp(-timeState.sunElevation * 1.6 + 0.15, 0, 1));
     if (this.onTimeOfDayUpdate) {
       this.onTimeOfDayUpdate(timeState);
     }
@@ -688,8 +914,20 @@ export class GameWorld {
 
     // Update dynamic road traffic & wildlife
     if (this.trafficSystem) {
-      this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn);
+      this.trafficSystem.update(delta, this.vehiclePos, this.controls.horn, this.vehicleRotation);
     }
+
+    // Procedural road incidents — pure scheduler + THREE director; notify on the frame one appears
+    const spawned = this.incidentDirector.update(
+      delta,
+      this.vehiclePos,
+      this.vehicleRotation,
+      this.totalDistanceDriven,
+      this.speed,
+      this.currentLocation.id,
+      this.currentWeather
+    );
+    if (spawned) this.onIncident?.(spawned);
 
     // Update dynamic multi-aspect wide traffic signals & countdown timers
     if (this.environmentBuilder?.trafficSignalBuilder) {
@@ -699,6 +937,15 @@ export class GameWorld {
     // Update continuous environment animations (windmills, smoke, steam)
     if (this.environmentBuilder) {
       this.environmentBuilder.update(delta);
+    }
+
+    // Toll boom-gate raise: payToll() sets tollBoomTweenT to 0; lerp rotation.z 0 -> -PI/2
+    // over ~0.8 s, then leave it raised (tweenT back to null, gate stays open for the session).
+    const boomGate = this.environmentBuilder.tollBoomGates[0];
+    if (this.tollBoomTweenT !== null && boomGate) {
+      this.tollBoomTweenT = Math.min(this.tollBoomTweenT + delta / 0.8, 1);
+      boomGate.rotation.z = THREE.MathUtils.lerp(0, -Math.PI / 2, this.tollBoomTweenT);
+      if (this.tollBoomTweenT >= 1) this.tollBoomTweenT = null;
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -722,6 +969,9 @@ export class GameWorld {
     }
     if (this.trafficSystem) {
       this.trafficSystem.destroy();
+    }
+    if (this.incidentDirector) {
+      this.incidentDirector.destroy();
     }
     this.renderer.dispose();
     if (this.renderer.domElement && this.renderer.domElement.parentNode) {

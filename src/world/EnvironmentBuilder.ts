@@ -3,8 +3,31 @@ import { LocationData } from '../types';
 import { RoadSignBuilder } from './RoadSignBuilder';
 import { TrafficSignalBuilder } from './TrafficSignalBuilder';
 import { RoadGeometryHelper } from './RoadGeometryHelper';
+import { WaterOccupancy } from './WaterOccupancy';
+import { PlacementHelper } from './PlacementHelper';
 import { RoadTextureGenerator } from './RoadTextureGenerator';
 import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
+import {
+  getWaterBodySpecs,
+  WaterBodySpec,
+} from '../data/waterBodies';
+import {
+  PETROL_PUMPS,
+  AUTO_GARAGES,
+  TOLL_PLAZA,
+  FARMS,
+  FACTORIES,
+  SHOPS,
+  MALLS,
+  TOWERS,
+  HOUSES,
+} from '../data/roadsidePlacements';
+import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
+import * as raniKiVav from './landmarks/raniKiVav';
+import * as somnath from './landmarks/somnath';
+import * as girGate from './landmarks/girGate';
+import * as whiteRann from './landmarks/whiteRann';
+import * as statueOfUnity from './landmarks/statueOfUnity';
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
@@ -53,6 +76,15 @@ export class EnvironmentBuilder {
     strobeLights: THREE.Mesh[];
   }[] = [];
 
+  // Toll-plaza boom barriers — pivot Groups whose origin is the hinge; start horizontal
+  // (rotation.z = 0). GameWorld.payToll() tweens rotation.z to -Math.PI/2 to raise one.
+  public tollBoomGates: THREE.Object3D[] = [];
+
+  // Night atmosphere: lit windows, street lamps & coastal aarti glow — driven by setNightFactor()
+  private nightEmissiveMaterials: { mat: THREE.MeshStandardMaterial; base: number }[] = [];
+  private streetLamps: THREE.PointLight[] = [];
+  private aartiLights: THREE.PointLight[] = [];
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.roadSignBuilder = new RoadSignBuilder(scene);
@@ -89,13 +121,23 @@ export class EnvironmentBuilder {
    * Build complete Gujarat map environment connecting all locations
    */
   public buildFullWorld(locations: LocationData[]) {
-    // 1. Base Terrain Ground Plane
-    const groundGeo = new THREE.PlaneGeometry(2400, 2400, 48, 48);
+    // 1. Base Terrain Ground Plane — sized to cover every zone (largest extents:
+    //    Saputara x≈1534, Dholavira z≈-890) plus their landmark footprints.
+    const groundGeo = new THREE.PlaneGeometry(3600, 3600, 60, 60);
     const ground = new THREE.Mesh(groundGeo, this.grassMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.05;
     ground.receiveShadow = true;
     this.scene.add(ground);
+
+    WaterOccupancy.clear();
+    PlacementHelper.resetPlacements();
+
+    // Register every water body (rivers, seas, lakes) BEFORE anything else is placed, so
+    // trees, city blocks and roadside props can all keep out of the water.
+    for (const w of getWaterBodySpecs()) {
+      WaterOccupancy.registerRect(w.x - w.sx / 2, w.x + w.sx / 2, w.z - w.sz / 2, w.z + w.sz / 2);
+    }
 
     // 2. Build interconnected wide multi-lane highways
     const segments = getResolvedHighwaySegments();
@@ -115,8 +157,146 @@ export class EnvironmentBuilder {
       this.buildZoneLandmark(loc);
     });
 
-    // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, streetlights
+    // 7. Populate roadside scenery: trees (strictly off-road), milestone signboards, dhabas, petrol/garage stops
     this.buildRoadsideScenery(locations);
+
+    // 8. Night infrastructure: lit city windows, highway street lamps, coastal aarti glow (all dark by day)
+    this.buildNightAtmosphere(locations);
+  }
+
+  /**
+   * Register an emissive material whose intensity is ramped by setNightFactor().
+   * `base` is the emissiveIntensity reached at full night (nightFactor === 1).
+   */
+  private registerNightEmissive(mat: THREE.MeshStandardMaterial, base: number) {
+    this.nightEmissiveMaterials.push({ mat, base });
+  }
+
+  /**
+   * Self-contained night lighting pass. Adds — all starting fully dark —:
+   *  - ~8 emissive "lit window" boxes per city/village/monument zone (rajkot, ahmedabad, surat, vadodara, junagadh)
+   *  - street lamp posts + point lights along the highway verges (capped at 40)
+   *  - a warm "aarti" point light at the coastal temples (dwarka, somnath) that blooms at dusk
+   * setNightFactor() drives all of it each frame from GameWorld.animate().
+   */
+  private buildNightAtmosphere(locations: LocationData[]) {
+    const group = new THREE.Group();
+    const locMap = new Map(locations.map((l): [string, LocationData] => [l.id, l]));
+
+    // 1. Lit windows — one shared emissive material, silhouette lighting (not every pane)
+    const windowMat = new THREE.MeshStandardMaterial({ color: 0xfde68a, emissive: 0xfde68a, emissiveIntensity: 0 });
+    this.registerNightEmissive(windowMat, 0.9);
+    const windowGeo = new THREE.BoxGeometry(1.2, 1.6, 0.15);
+
+    for (const id of ['rajkot', 'ahmedabad', 'gandhinagar', 'surat', 'vadodara', 'junagadh']) {
+      const loc = locMap.get(id);
+      if (!loc) continue;
+      const { x, z } = loc.worldPosition;
+      // Deterministic per-zone pseudo-random so the layout is stable across reloads
+      const seed = x * 0.017 + z * 0.031 + id.length;
+      const rand = (n: number) => {
+        const s = Math.sin(seed + n * 12.9898) * 43758.5453;
+        return s - Math.floor(s);
+      };
+      // Two implied building faces flanking the zone, 4 windows each (y 2..8)
+      for (let face = 0; face < 2; face++) {
+        const faceAngle = 0.7 + face * 2.5 + rand(face) * 0.5;
+        const bx = x + Math.cos(faceAngle) * 26;
+        const bz = z + Math.sin(faceAngle) * 26;
+        const yaw = Math.atan2(x - bx, z - bz); // face looks back toward the zone centre
+        for (let w = 0; w < 4; w++) {
+          const win = new THREE.Mesh(windowGeo, windowMat);
+          const lateral = (w % 2 === 0 ? -1 : 1) * (1.4 + rand(face * 10 + w) * 1.3);
+          const wy = 2 + Math.floor(w / 2) * 3 + rand(face * 20 + w) * 1.4;
+          win.position.set(
+            bx + Math.cos(faceAngle + Math.PI / 2) * lateral,
+            wy,
+            bz + Math.sin(faceAngle + Math.PI / 2) * lateral
+          );
+          win.rotation.y = yaw;
+          group.add(win);
+        }
+      }
+    }
+
+    // 2. Street lamps along the highway verges — walk the same segment data buildRoadsideScenery uses
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x1f2937, roughness: 0.6, metalness: 0.5 });
+    const lampHeadMat = new THREE.MeshStandardMaterial({ color: 0xfff3c4, emissive: 0xfff3c4, emissiveIntensity: 0 });
+    this.registerNightEmissive(lampHeadMat, 1.0);
+    const poleGeo = new THREE.CylinderGeometry(0.12, 0.16, 5, 6);
+    const headGeo = new THREE.SphereGeometry(0.35, 8, 6);
+    const LAMP_CAP = 40;
+
+    const segments = RoadGeometryHelper.getSegments();
+    for (const seg of segments) {
+      if (this.streetLamps.length >= LAMP_CAP) break;
+      const { start, end, angle, distance, width } = seg;
+      const dx = end.x - start.x;
+      const dz = end.z - start.z;
+      const normX = Math.cos(angle);
+      const normZ = -Math.sin(angle);
+      const sideDist = width / 2 + 2.5;
+      const stepCount = Math.floor(distance / 50);
+
+      for (let s = 1; s < stepCount; s++) {
+        if (s % 4 !== 0) continue;
+        if (this.streetLamps.length >= LAMP_CAP) break;
+        const t = s / stepCount;
+        const cx = start.x + dx * t;
+        const cz = start.z + dz * t;
+        const side = s % 8 === 0 ? 1 : -1;
+        const lx = cx + normX * sideDist * side;
+        const lz = cz + normZ * sideDist * side;
+
+        const lamp = new THREE.Group();
+        lamp.position.set(lx, 0, lz);
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.y = 2.5;
+        const head = new THREE.Mesh(headGeo, lampHeadMat);
+        head.position.y = 5;
+        const light = new THREE.PointLight(0xfff3c4, 0, 14);
+        light.position.y = 5;
+        lamp.add(pole, head, light);
+        group.add(lamp);
+        this.streetLamps.push(light);
+      }
+    }
+
+    // 3. Coastal aarti glow — warm bloom at the seaside temples, peaks at dusk
+    for (const id of ['dwarka', 'somnath']) {
+      const loc = locMap.get(id);
+      if (!loc) continue;
+      const aarti = new THREE.PointLight(0xffa94d, 0, 40);
+      aarti.position.set(loc.worldPosition.x, 6, loc.worldPosition.z);
+      group.add(aarti);
+      this.aartiLights.push(aarti);
+    }
+
+    this.scene.add(group);
+  }
+
+  /**
+   * Ramp all night lighting from a single factor.
+   * @param f 0 = full day (everything dark), 1 = deep night. Aarti glow peaks near f ≈ 0.4 (dusk).
+   */
+  public setNightFactor(f: number) {
+    this.nightEmissiveMaterials.forEach(({ mat, base }) => {
+      mat.emissiveIntensity = f * base;
+    });
+    // A PointLight with intensity 0 is NOT culled by Three.js — WebGLLights counts every light
+    // whose .visible !== false, so leaving these on would keep ~42 point lights in every
+    // material's shader (NUM_POINT_LIGHTS) even at noon. Toggle .visible so they leave the
+    // shader entirely by day and only cost a recompile at the dawn/dusk crossover.
+    this.streetLamps.forEach((l) => {
+      const lit = f > 0.35;
+      l.visible = lit;
+      l.intensity = lit ? 3.5 : 0;
+    });
+    this.aartiLights.forEach((l) => {
+      const intensity = THREE.MathUtils.clamp(1 - Math.abs(f - 0.4) * 3, 0, 1) * 4;
+      l.visible = intensity > 0.01;
+      l.intensity = intensity;
+    });
   }
 
   /**
@@ -508,33 +688,57 @@ export class EnvironmentBuilder {
       case 'dwarka':
         this.buildDwarkadhishTemple(landmarkGroup);
         break;
-      case 'somnath':
-        this.buildSomnathTemple(landmarkGroup);
+      case 'somnath': {
+        // −Z setback so the temple plinth clears the northbound corridors and the
+        // junction-plaza rings; the sea renders south of the shore wall (see somnath.ts).
+        const g = somnath.build();
+        g.position.z = -62;
+        landmarkGroup.add(g);
         break;
-      case 'gir':
-        this.buildGirForestZone(landmarkGroup);
+      }
+      case 'gir': {
+        // Skip canopy clumps that would land on the Somnath/Junagadh corridors.
+        const gz0 = -20;
+        const g = girGate.build((lx, lz) =>
+          RoadGeometryHelper.isInsideRoadOrClearance(loc.worldPosition.x + lx, loc.worldPosition.z + gz0 + lz, 5)
+        );
+        g.position.z = gz0;
+        landmarkGroup.add(g);
         break;
+      }
       case 'junagadh':
         this.buildGirnarMountain(landmarkGroup);
         break;
-      case 'kutch':
-        this.buildWhiteRann(landmarkGroup);
+      case 'kutch': {
+        const g = whiteRann.build();
+        g.position.z = -30;
+        landmarkGroup.add(g);
         break;
-      case 'statue_of_unity':
-        this.buildStatueOfUnity(landmarkGroup);
+      }
+      case 'statue_of_unity': {
+        const g = statueOfUnity.build();
+        g.position.z = -55;
+        landmarkGroup.add(g);
         break;
+      }
       case 'saputara':
         this.buildSaputaraGhats(landmarkGroup);
         break;
       case 'ahmedabad':
         this.buildAhmedabadHeritage(landmarkGroup);
         break;
+      case 'gandhinagar':
+        this.buildGandhinagarSectors(landmarkGroup);
+        break;
       case 'surat':
         this.buildSuratTapiBridge(landmarkGroup);
         break;
-      case 'patan_modhera':
-        this.buildPatanModheraLandmark(landmarkGroup);
+      case 'patan_modhera': {
+        const g = raniKiVav.build();
+        g.position.z = -25;
+        landmarkGroup.add(g);
         break;
+      }
       case 'pavagadh':
         this.buildPavagadhChampaner(landmarkGroup);
         break;
@@ -657,11 +861,8 @@ export class EnvironmentBuilder {
 
     group.add(templeGroup);
 
-    // Coastal Arabian Sea shoreline
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(350, 120), this.waterMat);
-    sea.rotation.x = -Math.PI / 2;
-    sea.position.set(0, 0.1, -120);
-    group.add(sea);
+    // Coastal Arabian Sea is drawn centrally by buildRiverSystems() from waterBodies.ts
+    // (registered for collision + verified road-free).
 
     // Shivrajpur Lighthouse
     const lhBase = new THREE.Mesh(new THREE.CylinderGeometry(2, 3, 22, 12), new THREE.MeshStandardMaterial({ color: 0xf8fafc }));
@@ -676,112 +877,6 @@ export class EnvironmentBuilder {
     const steps = new THREE.Mesh(new THREE.BoxGeometry(60, 1.5, 15), this.sandstoneMat);
     steps.position.set(0, 0.7, -65);
     group.add(steps);
-  }
-
-  /**
-   * Zone: Somnath Jyotirlinga Temple & Seashore
-   */
-  private buildSomnathTemple(group: THREE.Group) {
-    const templeGroup = new THREE.Group();
-    templeGroup.position.set(0, 0, -40);
-
-    // Grand Somnath Sabha Mandap & Shikhar
-    const mainHall = new THREE.Mesh(new THREE.BoxGeometry(26, 9, 28), this.sandstoneMat);
-    mainHall.position.y = 4.5;
-    mainHall.castShadow = true;
-
-    const shikhar = new THREE.Mesh(new THREE.ConeGeometry(10, 28, 8), this.sandstoneMat);
-    shikhar.position.set(0, 23, -6);
-
-    const goldDome = new THREE.Mesh(new THREE.SphereGeometry(1.8, 16, 16), this.goldMat);
-    goldDome.position.set(0, 37.5, -6);
-
-    // Trishul & Om Flag
-    const trishul = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 5), this.goldMat);
-    trishul.position.set(0, 41, -6);
-    templeGroup.add(mainHall, shikhar, goldDome, trishul);
-
-    // Baan-Stambh (Arrow Pillar) pointing South Pole
-    const baanStambh = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 14, 12), this.sandstoneMat);
-    baanStambh.position.set(24, 7, 10);
-    const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2, 8), this.goldMat);
-    arrow.position.set(24, 15, 10);
-    arrow.rotation.z = Math.PI;
-    templeGroup.add(baanStambh, arrow);
-
-    group.add(templeGroup);
-
-    // Rocky ocean coastline with waves
-    const sea = new THREE.Mesh(new THREE.PlaneGeometry(350, 140), this.waterMat);
-    sea.rotation.x = -Math.PI / 2;
-    sea.position.set(0, 0.1, -120);
-    group.add(sea);
-  }
-
-  /**
-   * Zone: Sasan Gir Forest & Wildlife
-   */
-  private buildGirForestZone(group: THREE.Group) {
-    // Teak & Banyan Dense Forest trees (strictly checked for world position road clearance)
-    for (let i = 0; i < 56; i++) {
-      const angle = (i / 56) * Math.PI * 2;
-      const radius = 30 + Math.random() * 75;
-      const tx = Math.cos(angle) * radius;
-      const tz = Math.sin(angle) * radius - 20;
-      const worldX = 150 + tx; // Gir position is (150, 550)
-      const worldZ = 550 + tz;
-      if (!RoadGeometryHelper.isInsideRoadOrClearance(worldX, worldZ, 12.0)) {
-        this.createTree(group, tx, tz, 2.2 + Math.random() * 1.8, true);
-      }
-    }
-
-    // Wooden Safari Watchtower
-    const towerGroup = new THREE.Group();
-    towerGroup.position.set(28, 0, -25);
-    const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg1.position.set(-2, 6, -2);
-    const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg2.position.set(2, 6, -2);
-    const leg3 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg3.position.set(-2, 6, 2);
-    const leg4 = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 12), this.woodMat);
-    leg4.position.set(2, 6, 2);
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(5.5, 3.5, 5.5), this.woodMat);
-    cabin.position.set(0, 13, 0);
-    towerGroup.add(leg1, leg2, leg3, leg4, cabin);
-    group.add(towerGroup);
-
-    // 3D Asiatic Lions (King of Gir) resting on rock
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(3.5), this.stoneMat);
-    rock.position.set(-18, 2, -22);
-    group.add(rock);
-
-    // Asiatic Lion model (Procedural golden body, majestic mane, tail)
-    const lionGroup = new THREE.Group();
-    lionGroup.position.set(-18, 4.2, -22);
-    const lionMat = new THREE.MeshStandardMaterial({ color: 0xd97706, roughness: 0.8 });
-    const maneMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.9 });
-
-    const lionBody = new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 2.2, 8, 8), lionMat);
-    lionBody.rotation.z = Math.PI / 2;
-    const lionMane = new THREE.Mesh(new THREE.SphereGeometry(1.1, 10, 10), maneMat);
-    lionMane.position.set(-1.2, 0.6, 0);
-    const lionHead = new THREE.Mesh(new THREE.SphereGeometry(0.6, 8, 8), lionMat);
-    lionHead.position.set(-1.5, 0.6, 0);
-    lionGroup.add(lionBody, lionMane, lionHead);
-    group.add(lionGroup);
-
-    // Dancing Peacock (Mor)
-    const peacockGroup = new THREE.Group();
-    peacockGroup.position.set(12, 1, -12);
-    const pMat = new THREE.MeshStandardMaterial({ color: 0x0284c7 });
-    const pBody = new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.2, 8), pMat);
-    pBody.rotation.x = Math.PI / 3;
-    const pFeathers = new THREE.Mesh(new THREE.CircleGeometry(1.4, 12), new THREE.MeshStandardMaterial({ color: 0x15803d, side: THREE.DoubleSide }));
-    pFeathers.position.set(0, 0.8, 0.6);
-    pFeathers.rotation.x = 0.3;
-    peacockGroup.add(pBody, pFeathers);
-    group.add(peacockGroup);
   }
 
   /**
@@ -823,218 +918,198 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Zone: Great Rann of Kutch (White Salt Desert & Bhungas)
-   */
-  private buildWhiteRann(group: THREE.Group) {
-    // Salt flat ground overlay (Sparkling White Rann)
-    const saltGround = new THREE.Mesh(new THREE.PlaneGeometry(450, 450), this.saltMat);
-    saltGround.rotation.x = -Math.PI / 2;
-    saltGround.position.set(0, 0.05, -30);
-    group.add(saltGround);
-
-    // Traditional Kutchi Bhungas (Round mud huts with conical thatch roof & mirror Lippan art)
-    for (let b = 0; b < 6; b++) {
-      const bx = -35 + (b % 3) * 35;
-      const bz = -35 - Math.floor(b / 3) * 30;
-
-      const bhungaGroup = new THREE.Group();
-      bhungaGroup.position.set(bx, 0, bz);
-
-      const hutWall = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 4.5, 4.5, 18), this.sandstoneMat);
-      hutWall.position.y = 2.25;
-
-      const hutRoof = new THREE.Mesh(new THREE.ConeGeometry(5.8, 4.2, 18), this.thatchMat);
-      hutRoof.position.y = 6.4;
-
-      // Lippan art mirror accent ring
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(4.55, 0.1, 8, 24), this.goldMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.y = 2.5;
-
-      bhungaGroup.add(hutWall, hutRoof, ring);
-      group.add(bhungaGroup);
-    }
-
-    // Colorful Rann Utsav Handloom Tents
-    for (let t = -30; t <= 30; t += 20) {
-      const tentGeo = new THREE.ConeGeometry(4, 5, 4);
-      const tentMat = new THREE.MeshStandardMaterial({
-        color: t === 0 ? 0xdc2626 : t < 0 ? 0x2563eb : 0xf59e0b,
-      });
-      const tent = new THREE.Mesh(tentGeo, tentMat);
-      tent.position.set(t, 2.5, 15);
-      tent.rotation.y = Math.PI / 4;
-      group.add(tent);
-    }
-
-    // Camel Cart
-    const camel = this.createCamel();
-    camel.position.set(18, 0, -12);
-    group.add(camel);
-  }
-
-  /**
-   * Zone: Statue of Unity (182m Sardar Patel Statue & Sardar Sarovar Dam)
-   */
-  private buildStatueOfUnity(group: THREE.Group) {
-    const souGroup = new THREE.Group();
-    souGroup.position.set(0, 0, -55);
-
-    // Bronze alloy material for Sardar Patel
-    const bronzeMat = new THREE.MeshStandardMaterial({
-      color: 0x92400e, // Rich bronze patina
-      metalness: 0.7,
-      roughness: 0.35,
-    });
-
-    // Star-shaped base podium
-    const basePodium = new THREE.Mesh(new THREE.CylinderGeometry(14, 18, 12, 6), this.sandstoneMat);
-    basePodium.position.y = 6;
-    souGroup.add(basePodium);
-
-    // Sardar Patel 3D Colossus Figure
-    // Legs
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(4.0, 18, 4.5), bronzeMat);
-    legL.position.set(-3.2, 21, 0);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(4.0, 18, 4.5), bronzeMat);
-    legR.position.set(3.2, 21, 0);
-
-    // Traditional Kurta / Dhoti Torso
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(11, 22, 7.5), bronzeMat);
-    torso.position.set(0, 41, 0);
-
-    // Shawl draped over shoulder
-    const shawl = new THREE.Mesh(new THREE.BoxGeometry(12.5, 14, 8.2), bronzeMat);
-    shawl.position.set(0, 44, 0);
-
-    // Head and Face of Sardar Patel
-    const head = new THREE.Mesh(new THREE.SphereGeometry(3.6, 16, 16), bronzeMat);
-    head.position.set(0, 55, 0);
-
-    souGroup.add(legL, legR, torso, shawl, head);
-    group.add(souGroup);
-
-    // Narmada River
-    const narmada = new THREE.Mesh(new THREE.PlaneGeometry(350, 60), this.waterMat);
-    narmada.rotation.x = -Math.PI / 2;
-    narmada.position.set(0, 0.1, -15);
-    group.add(narmada);
-
-    // Bridge over Narmada
-    const bridge = new THREE.Mesh(new THREE.BoxGeometry(80, 2, 8), this.stoneMat);
-    bridge.position.set(0, 1.5, -15);
-    group.add(bridge);
-
-    // Valley of Flowers colorful garden stripes
-    const colors = [0xec4899, 0xfacc15, 0xa855f7, 0xef4444, 0x3b82f6];
-    colors.forEach((c, idx) => {
-      const flowerBed = new THREE.Mesh(new THREE.PlaneGeometry(28, 4), new THREE.MeshStandardMaterial({ color: c }));
-      flowerBed.rotation.x = -Math.PI / 2;
-      flowerBed.position.set(-25 + idx * 12, 0.08, 12);
-      group.add(flowerBed);
-    });
-  }
-
-  /**
-   * Zone: Saputara Hill Station & Monsoon Ghats
+   * Zone: Saputara Hill Station & Monsoon Ghats. Both corridors exit north/north-west, so
+   * the hills, lake and waterfall all sit in the road-free eastern saddle — verified by the
+   * zoneLayout water/road tests. The lake is drawn centrally from waterBodies.ts.
    */
   private buildSaputaraGhats(group: THREE.Group) {
-    // Sahyadri Mountain Hills
+    // Sahyadri Mountain Hills (off the highway corridors)
     const hill1 = new THREE.Mesh(new THREE.ConeGeometry(55, 45, 16), this.grassMat);
-    hill1.position.set(-45, 22.5, -50);
+    hill1.position.set(95, 22.5, -45);
     const hill2 = new THREE.Mesh(new THREE.ConeGeometry(65, 55, 16), this.grassMat);
-    hill2.position.set(45, 27.5, -60);
+    hill2.position.set(30, 27.5, 100);
     group.add(hill1, hill2);
 
-    // Saputara Lake
-    const lake = new THREE.Mesh(new THREE.CylinderGeometry(26, 26, 0.5, 24), this.waterMat);
-    lake.position.set(0, 0.2, -25);
-    group.add(lake);
-
-    // Gira Waterfall stream
+    // Gira Waterfall stream cascading down hill1's west face
     const waterfall = new THREE.Mesh(new THREE.PlaneGeometry(8, 35), this.waterMat);
-    waterfall.position.set(-35, 18, -35);
-    waterfall.rotation.y = 0.4;
+    waterfall.position.set(60, 18, -45);
+    waterfall.rotation.y = -0.4;
     group.add(waterfall);
-
-    // Mountain Ghat Barriers (Yellow & Black striped safety rails)
-    for (let r = -40; r <= 40; r += 8) {
-      const post = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.2, 0.2, 1.2),
-        new THREE.MeshStandardMaterial({ color: r % 16 === 0 ? 0x000000 : 0xfacc15 })
-      );
-      post.position.set(r, 0.6, -6);
-      group.add(post);
-    }
   }
 
   /**
-   * Zone: Ahmedabad Sabarmati & Atal Bridge
+   * Zone: Ahmedabad — heritage pols east of the junction, Sidi Saiyyed jali, and kites.
+   * The Sabarmati itself is a narrow N-S strip east of the pols, drawn centrally by
+   * buildRiverSystems() from waterBodies.ts with the pedestrian Atal Bridge across it —
+   * the wedge is verified road-free, so water never paints over a highway.
    */
   private buildAhmedabadHeritage(group: THREE.Group) {
-    // Sabarmati River
-    const river = new THREE.Mesh(new THREE.PlaneGeometry(350, 70), this.waterMat);
-    river.rotation.x = -Math.PI / 2;
-    river.position.set(0, 0.1, -40);
-    group.add(river);
+    const ox = group.position.x;
+    const oz = group.position.z;
 
-    // Atal Bridge (Iconic white pedestrian arch bridge over Sabarmati)
-    const bridgeGroup = new THREE.Group();
-    bridgeGroup.position.set(0, 4, -40);
-    const deck = new THREE.Mesh(new THREE.BoxGeometry(70, 0.8, 6), this.stoneMat);
-    const arch1 = new THREE.Mesh(new THREE.TorusGeometry(32, 0.6, 8, 24, Math.PI), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-    arch1.position.set(0, -6, 3.2);
-    const arch2 = new THREE.Mesh(new THREE.TorusGeometry(32, 0.6, 8, 24, Math.PI), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-    arch2.position.set(0, -6, -3.2);
-    bridgeGroup.add(deck, arch1, arch2);
-    group.add(bridgeGroup);
-
-    // Sidi Saiyyed Stone Carved Arch monument
+    // Sidi Saiyyed jali — north-east of the plaza, well clear of the roundabout
     const sidiJali = new THREE.Mesh(new THREE.BoxGeometry(14, 8, 1.2), this.sandstoneMat);
-    sidiJali.position.set(-28, 4, -10);
+    sidiJali.position.set(36, 4, -8);
     group.add(sidiJali);
 
-    // Flying Kites (પતંગોત્સવ) in the sky
+    // Tight pol-house grid between the plaza and the river, skipping road/water/plaza cells
+    const houseMat = this.sandstoneMat;
+    for (let gx = 0; gx < 4; gx++) {
+      for (let gz = 0; gz < 4; gz++) {
+        const lx = 50 + gx * 13;
+        const lz = 6 + gz * 13;
+        if (WaterOccupancy.isBlocked(ox + lx, oz + lz, 6)) continue;
+        if (RoadGeometryHelper.isInsideRoadOrClearance(ox + lx, oz + lz, 6)) continue;
+        const h = 5 + ((gx + gz) % 3);
+        const house = new THREE.Mesh(new THREE.BoxGeometry(8, h, 8), houseMat);
+        house.position.set(lx, h / 2, lz);
+        house.castShadow = true;
+        group.add(house);
+      }
+    }
+
     const kiteColors = [0xef4444, 0x3b82f6, 0x10b981, 0xf59e0b, 0xec4899];
     kiteColors.forEach((kc, i) => {
-      const kite = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 2.5), new THREE.MeshStandardMaterial({ color: kc, side: THREE.DoubleSide }));
+      const kite = new THREE.Mesh(
+        new THREE.PlaneGeometry(2.5, 2.5),
+        new THREE.MeshStandardMaterial({ color: kc, side: THREE.DoubleSide })
+      );
       kite.rotation.z = Math.PI / 4;
-      kite.position.set(-30 + i * 15, 22 + (i % 3) * 6, -30 + i * 5);
+      kite.position.set(60 + i * 8, 22 + (i % 3) * 6, -10 + i * 5);
       group.add(kite);
     });
   }
 
   /**
-   * Zone: Surat Tapi Cable Bridge & Textile Hub
+   * Zone: Gandhinagar — the square sector city. A 4x4 grid of sectors separated by VISIBLE
+   * internal streets (purely local geometry, never touching the highway graph), a garden
+   * chowk, the Secretariat, an Akshardham pavilion, sector name boards and a tree green
+   * belt around the whole grid. The grid starts 34m out from the junction so nothing
+   * overlaps the roundabout, and every cell checks road/water before building.
+   */
+  private buildGandhinagarSectors(group: THREE.Group) {
+    const ox = group.position.x;
+    const oz = group.position.z;
+    const block = 16;
+    const street = 10;
+    const pitch = block + street;
+    const origin = 42; // grid starts outside the 27m junction plaza
+    const gridMin = origin - block / 2;                     // 34
+    const gridMax = origin + 3 * pitch + block / 2;         // 128
+
+    // --- internal sector streets: 3 lines each way between the 4 rows/columns ---
+    const streetMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.88 });
+    const gridLen = gridMax - gridMin + street;
+    for (let k = 0; k < 3; k++) {
+      const pos = origin + pitch / 2 + k * pitch; // 55, 81, 107
+      const ns = new THREE.Mesh(new THREE.PlaneGeometry(street, gridLen), streetMat);
+      ns.rotation.x = -Math.PI / 2;
+      ns.position.set(pos, 0.02, (gridMin + gridMax) / 2);
+      const ew = new THREE.Mesh(new THREE.PlaneGeometry(gridLen, street), streetMat);
+      ew.rotation.x = -Math.PI / 2;
+      ew.position.set((gridMin + gridMax) / 2, 0.02, pos);
+      group.add(ns, ew);
+    }
+
+    const chowkX = origin + pitch;
+    const chowkZ = origin + pitch;
+    const sectorNames = ['સેક્ટર ૧૩', 'સેક્ટર ૧૪', 'સેક્ટર ૨૧', 'સેક્ટર ૨૨'];
+    let nameIdx = 0;
+
+    for (let gx = 0; gx < 4; gx++) {
+      for (let gz = 0; gz < 4; gz++) {
+        const lx = origin + gx * pitch;
+        const lz = origin + gz * pitch;
+        const isChowk = gx === 1 && gz === 1;
+        const isSecretariat = gx === 2 && gz === 2;
+        const isAkshardham = gx === 2 && gz === 0;
+
+        if (isChowk) {
+          // Central garden chowk with a small fountain and Indroda-style trees
+          const lawn = new THREE.Mesh(new THREE.BoxGeometry(block, 0.15, block), this.grassMat);
+          lawn.position.set(lx, 0.08, lz);
+          group.add(lawn);
+          const fountain = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.6, 0.9, 16), this.stoneMat);
+          fountain.position.set(lx, 0.45, lz);
+          const jet = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.9, 2.2, 10), this.waterMat);
+          jet.position.set(lx, 1.9, lz);
+          group.add(fountain, jet);
+          this.createTree(group, lx - 5, lz - 5, 1.1);
+          this.createTree(group, lx + 5, lz + 5, 1.1);
+          this.createTree(group, lx + 5, lz - 5, 0.9);
+          this.createTree(group, lx - 5, lz + 5, 0.9);
+          continue;
+        }
+
+        if (WaterOccupancy.isBlocked(ox + lx, oz + lz, 6)) continue;
+        if (RoadGeometryHelper.isInsideRoadOrClearance(ox + lx, oz + lz, 6)) continue;
+
+        if (isSecretariat) {
+          const secretariat = new THREE.Mesh(new THREE.BoxGeometry(18, 10, 12), this.stoneMat);
+          secretariat.position.set(lx, 5, lz);
+          secretariat.castShadow = true;
+          group.add(secretariat);
+          this.createBoard(group, 'ગુજરાત સચિવાલય — ગાંધીનગર', lx, 11, lz + 7, 14, 1.6);
+          continue;
+        }
+
+        if (isAkshardham) {
+          // Akshardham-style pavilion: plinth, colonnade, ribbed dome, gold finial
+          const pavilion = new THREE.Group();
+          pavilion.position.set(lx, 0, lz);
+          const plinth = new THREE.Mesh(new THREE.BoxGeometry(18, 1.2, 18), this.sandstoneMat);
+          plinth.position.y = 0.6;
+          pavilion.add(plinth);
+          for (let p = 0; p < 8; p++) {
+            const a = (p / 8) * Math.PI * 2;
+            const col = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 7, 10), this.sandstoneMat);
+            col.position.set(Math.cos(a) * 6.5, 4.7, Math.sin(a) * 6.5);
+            col.castShadow = true;
+            pavilion.add(col);
+          }
+          const drum = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 5.8, 3, 16), this.sandstoneMat);
+          drum.position.y = 9.6;
+          const dome = new THREE.Mesh(new THREE.SphereGeometry(5.4, 16, 12, 0, Math.PI * 2, 0, Math.PI / 2), this.sandstoneMat);
+          dome.position.y = 11.1;
+          const finial = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), this.goldMat);
+          finial.position.y = 17.2;
+          pavilion.add(drum, dome, finial);
+          pavilion.traverse((o) => { if (o instanceof THREE.Mesh) o.castShadow = true; });
+          group.add(pavilion);
+          continue;
+        }
+
+        // Regular sector block
+        const h = 4 + ((gx * 3 + gz) % 4);
+        const bldg = new THREE.Mesh(new THREE.BoxGeometry(block - 4, h, block - 4), this.sandstoneMat);
+        bldg.position.set(lx, h / 2, lz);
+        bldg.castShadow = true;
+        group.add(bldg);
+
+        if ((gx === 0 || gx === 3) && (gz === 0 || gz === 3) && nameIdx < sectorNames.length) {
+          this.createBoard(group, sectorNames[nameIdx++], lx, h + 1.6, lz + (block - 4) / 2 + 0.6, 8, 1.3);
+        }
+      }
+    }
+
+    // Green belt: a ring of trees around the whole sector city (createTree skips
+    // anything that would land on a road or in water)
+    const beltR = (gridMax - (gridMin + gridMax) / 2) * Math.SQRT2 + 12;
+    for (let a = 0; a < 20; a++) {
+      const theta = (a / 20) * Math.PI * 2 + 0.15;
+      const x = (gridMin + gridMax) / 2 + Math.cos(theta) * beltR;
+      const z = (gridMin + gridMax) / 2 + Math.sin(theta) * beltR;
+      this.createTree(group, x, z, 1.2 + (a % 3) * 0.25);
+    }
+  }
+
+  /**
+   * Zone: Surat textile hub. The Tapi river + cable bridge are drawn centrally by
+   * buildRiverSystems() from waterBodies.ts in the road-free wedge south of the junction.
    */
   private buildSuratTapiBridge(group: THREE.Group) {
-    // Tapi River
-    const tapi = new THREE.Mesh(new THREE.PlaneGeometry(350, 80), this.waterMat);
-    tapi.rotation.x = -Math.PI / 2;
-    tapi.position.set(0, 0.1, -45);
-    group.add(tapi);
-
-    // Surat Cable-Stayed Suspension Bridge
-    const bridgeGroup = new THREE.Group();
-    bridgeGroup.position.set(0, 0, -45);
-    const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.5, 34), new THREE.MeshStandardMaterial({ color: 0xffffff }));
-    pylon.position.set(0, 17, 0);
-    bridgeGroup.add(pylon);
-
-    // Cable stays
-    for (let c = 1; c <= 5; c++) {
-      const cableL = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 25), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
-      cableL.position.set(-c * 5, 12, 0);
-      cableL.rotation.z = 0.45;
-      const cableR = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 25), new THREE.MeshStandardMaterial({ color: 0xcccccc }));
-      cableR.position.set(c * 5, 12, 0);
-      cableR.rotation.z = -0.45;
-      bridgeGroup.add(cableL, cableR);
-    }
-    group.add(bridgeGroup);
-
-    // Textile Market Billboard
-    this.createBoard(group, 'સુરત ટેક્સટાઇલ & ડાયમંડ સિટી — સુરતી લોચો સ્પેશિયલ', 0, 8, -12, 14, 2.0);
+    // Textile Market Billboard facing the junction
+    this.createBoard(group, 'સુરત ટેક્સટાઇલ & ડાયમંડ સિટી — સુરતી લોચો સ્પેશિયલ', 0, 8, -34, 14, 2.0);
   }
 
 
@@ -1048,7 +1123,7 @@ export class EnvironmentBuilder {
     }
 
     // Strictly forbid placing tree on road or within safety clearance
-    if (!bypassSafetyCheck && RoadGeometryHelper.isInsideRoadOrClearance(worldX, worldZ, 10.0)) {
+    if (!bypassSafetyCheck && WaterOccupancy.isBlocked(worldX, worldZ, 10.0)) {
       return;
     }
 
@@ -1135,122 +1210,6 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Zone: Patan (Rani Ki Vav UNESCO Stepwell) & Modhera Sun Temple
-   */
-  private buildPatanModheraLandmark(group: THREE.Group) {
-    const complex = new THREE.Group();
-    complex.position.set(0, 0, -25);
-
-    // 1. Rani Ki Vav - 5 Stepped Multi-Tiered Subterranean Structure
-    const vavGroup = new THREE.Group();
-    vavGroup.position.set(-20, 0, 0);
-
-    // Terraced stepwell levels
-    const levels = 5;
-    for (let i = 0; i < levels; i++) {
-      const w = 28 - i * 4;
-      const d = 36 - i * 5;
-      const y = -i * 2.2;
-
-      const terrace = new THREE.Mesh(new THREE.BoxGeometry(w, 2.2, d), this.sandstoneMat);
-      terrace.position.set(0, y - 1.1, i * 3);
-      vavGroup.add(terrace);
-
-      // Colonnaded carved pillars on each terrace
-      const pillarCount = 6 - i;
-      for (let p = 0; p < pillarCount; p++) {
-        const px = -w / 2 + 2 + p * (w / (pillarCount || 1));
-        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 3.5, 8), this.sandstoneMat);
-        pillar.position.set(px, y + 1.75, i * 3);
-        vavGroup.add(pillar);
-      }
-    }
-
-    // Sacred water pool at lowest level
-    const pool = new THREE.Mesh(new THREE.BoxGeometry(10, 1, 12), this.waterMat);
-    pool.position.set(0, -levels * 2.2 + 0.5, (levels - 1) * 3);
-    vavGroup.add(pool);
-
-    // Solanki carved entrance Torana Arch
-    const torana = new THREE.Group();
-    torana.position.set(0, 0, -16);
-    const tL = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 8, 8), this.sandstoneMat);
-    tL.position.set(-6, 4, 0);
-    const tR = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.7, 8, 8), this.sandstoneMat);
-    tR.position.set(6, 4, 0);
-    const tBeam = new THREE.Mesh(new THREE.BoxGeometry(15, 1.2, 1.2), this.sandstoneMat);
-    tBeam.position.set(0, 7.5, 0);
-    const kalash = new THREE.Mesh(new THREE.ConeGeometry(1.0, 2.0, 8), this.goldMat);
-    kalash.position.set(0, 9.0, 0);
-    torana.add(tL, tR, tBeam, kalash);
-    vavGroup.add(torana);
-
-    // 2. Modhera Sun Temple (Sabha Mandap & Surya Kund)
-    const modheraGroup = new THREE.Group();
-    modheraGroup.position.set(22, 0, 0);
-
-    // Sabha Mandap Stepped Pyramid Hall
-    const mandapBase = new THREE.Mesh(new THREE.BoxGeometry(18, 2, 18), this.sandstoneMat);
-    mandapBase.position.set(0, 1, 0);
-    modheraGroup.add(mandapBase);
-
-    // 52 Carved Columns around the Sabha Mandap
-    for (let i = 0; i < 16; i++) {
-      const angle = (i / 16) * Math.PI * 2;
-      const r = 7.0;
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 6, 8), this.sandstoneMat);
-      col.position.set(Math.cos(angle) * r, 5, Math.sin(angle) * r);
-      modheraGroup.add(col);
-    }
-
-    // Pyramidical stepped roof
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(9, 7, 4), this.sandstoneMat);
-    roof.position.set(0, 11, 0);
-    roof.rotation.y = Math.PI / 4;
-    modheraGroup.add(roof);
-
-    // Golden Surya Dev Sun Crest on roof
-    const sunCrest = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 0.2, 16), this.goldMat);
-    sunCrest.position.set(0, 14.8, 0);
-    sunCrest.rotation.x = Math.PI / 2;
-    modheraGroup.add(sunCrest);
-
-    // Stepped Surya Kund (Water Reservoir in front)
-    const kund = new THREE.Mesh(new THREE.BoxGeometry(22, 1.5, 16), this.stoneMat);
-    kund.position.set(0, 0.5, 18);
-    const kundWater = new THREE.Mesh(new THREE.PlaneGeometry(18, 12), this.waterMat);
-    kundWater.rotation.x = -Math.PI / 2;
-    kundWater.position.set(0, 1.2, 18);
-    modheraGroup.add(kund, kundWater);
-
-    // Miniature step niches around Surya Kund
-    for (let k = -2; k <= 2; k++) {
-      const niche = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.8, 4), this.sandstoneMat);
-      niche.position.set(k * 4.5, 2.0, 10);
-      modheraGroup.add(niche);
-    }
-
-    // 3. Patan Patola Loom Workshop Pavilion
-    const patolaPavilion = new THREE.Group();
-    patolaPavilion.position.set(0, 0, 20);
-    const loomBase = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 8), this.woodMat);
-    loomBase.position.set(0, 0.25, 0);
-    const patolaRoof = new THREE.Mesh(new THREE.ConeGeometry(6, 3, 4), this.terracottaMat);
-    patolaRoof.position.set(0, 4.5, 0);
-    patolaRoof.rotation.y = Math.PI / 4;
-
-    // Colorful Patola silk banner
-    const silkBannerMat = new THREE.MeshStandardMaterial({ color: 0xd946ef, roughness: 0.5 });
-    const silkBanner = new THREE.Mesh(new THREE.BoxGeometry(6, 2.5, 0.2), silkBannerMat);
-    silkBanner.position.set(0, 2.5, 0);
-
-    patolaPavilion.add(loomBase, patolaRoof, silkBanner);
-
-    complex.add(vavGroup, modheraGroup, patolaPavilion);
-    group.add(complex);
-  }
-
-  /**
    * Zone: Pavagadh Shaktipeeth Mountain & UNESCO Champaner Fort
    */
   private buildPavagadhChampaner(group: THREE.Group) {
@@ -1333,23 +1292,27 @@ export class EnvironmentBuilder {
     const complex = new THREE.Group();
     complex.position.set(0, 0, -20);
 
-    // 1. "Road to Heaven" - White salt flats stretching to horizon with straight highway
+    // 1. "Road to Heaven" - White salt flats stretching to horizon. y=0.028 sits above the
+    //    terrain (-0.05) but BELOW every road layer (0.032+), so highways and the junction
+    //    roundabout always render on top of the salt — no painting over asphalt.
     const saltBed = new THREE.Mesh(new THREE.PlaneGeometry(280, 180), this.saltMat);
     saltBed.rotation.x = -Math.PI / 2;
-    saltBed.position.set(0, 0.05, 0);
+    saltBed.position.set(0, 0.028, 0);
     complex.add(saltBed);
 
-    // Elevated Highway Causeway slicing through salt
+    // Elevated Highway Causeway slicing through salt — pushed 100m north of the complex
+    // centre so the slab never crosses the real junction roundabout.
+    const causewayZ = -100;
     const roadCauseway = new THREE.Mesh(new THREE.BoxGeometry(12, 1.2, 180), this.roadMat);
-    roadCauseway.position.set(0, 0.6, 0);
+    roadCauseway.position.set(0, 0.6, causewayZ);
     complex.add(roadCauseway);
 
     // White highway railings
     const railMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.6 });
     const railL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 180), railMat);
-    railL.position.set(-5.8, 1.4, 0);
+    railL.position.set(-5.8, 1.4, causewayZ);
     const railR = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.8, 180), railMat);
-    railR.position.set(5.8, 1.4, 0);
+    railR.position.set(5.8, 1.4, causewayZ);
     complex.add(railL, railR);
 
     // 2. Harappan 5000-year-old Stone Citadel & Bastions
@@ -1365,10 +1328,10 @@ export class EnvironmentBuilder {
 
     // Great Indus Reservoir (Stepped Water Tank)
     const tank = new THREE.Mesh(new THREE.BoxGeometry(32, 4, 22), this.stoneMat);
-    tank.position.set(0, -1, 20);
+    tank.position.set(4, -1, 16);
     const tankWater = new THREE.Mesh(new THREE.PlaneGeometry(28, 18), this.waterMat);
     tankWater.rotation.x = -Math.PI / 2;
-    tankWater.position.set(0, 0.8, 20);
+    tankWater.position.set(4, 0.8, 16);
     citadelGroup.add(citadelWall, bastion1, bastion2, tank, tankWater);
 
     // Dholavira 10-Character Signboard Inscription Monument
@@ -1521,9 +1484,10 @@ export class EnvironmentBuilder {
     palaceGroup.add(centerWing, leftWing, rightWing, clockTower, towerSpire, dome1, dome2);
     complex.add(palaceGroup);
 
-    // 2. Sursagar Lake & 120-foot Golden/Stone Shiva Statue
+    // 2. Sursagar Lake & 120-foot Golden/Stone Shiva Statue — SOUTH of the palace
+    //    (net +85 from the junction) so the reservoir never touches the roundabout.
     const lakeGroup = new THREE.Group();
-    lakeGroup.position.set(0, 0, 25);
+    lakeGroup.position.set(0, 0, 110);
 
     // Square lake reservoir
     const lakeBed = new THREE.Mesh(new THREE.BoxGeometry(38, 1.2, 28), this.stoneMat);
@@ -1558,20 +1522,19 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Zone: Dandi National Salt Satyagraha Memorial & Beach Coast
+   * Zone: Dandi National Salt Satyagraha Memorial & Beach Coast. The whole complex sits
+   * 60m back from the junction (only corridor exits NE), so the sea, beach and memorial
+   * stay clear of the roundabout. Sea is drawn centrally from waterBodies.ts.
    */
   private buildDandiSaltMemorial(group: THREE.Group) {
     const complex = new THREE.Group();
-    complex.position.set(0, 0, -20);
+    complex.position.set(0, 0, -60);
 
-    // 1. Arabian Sea Coastline & Beach Sandy Promenade
-    const coastWater = new THREE.Mesh(new THREE.PlaneGeometry(160, 60), this.waterMat);
-    coastWater.rotation.x = -Math.PI / 2;
-    coastWater.position.set(0, 0.05, -35);
+    // 1. Beach Sandy Promenade between the memorial lawns and the sea (sea drawn centrally)
     const sandyBeach = new THREE.Mesh(new THREE.PlaneGeometry(160, 40), this.sandMat);
     sandyBeach.rotation.x = -Math.PI / 2;
-    sandyBeach.position.set(0, 0.06, 0);
-    complex.add(coastWater, sandyBeach);
+    sandyBeach.position.set(0, 0.03, 0);
+    complex.add(sandyBeach);
 
     // 2. National Salt Satyagraha Memorial - Iconic Solar Pyramid Monument
     const memorialBase = new THREE.Mesh(new THREE.BoxGeometry(26, 1.5, 26), this.stoneMat);
@@ -1637,793 +1600,64 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Zone: Sardar Vallabhbhai Patel International Airport (SVPIA), Ahmedabad
-   * Features: Modern international terminal, curved wave roof canopy, active runway 23/05,
-   * 36m ATC control tower with animated rotating radar, telescopic aerobridges,
-   * commercial twin-jet airliners in fictional Gujarati liveries, ground support equipment,
-   * Sardar Patel memorial entry plaza, and animated circling airborne flight.
-   */
-  private buildAhmedabadAirport(group: THREE.Group) {
-    const airportGroup = new THREE.Group();
-
-    // 1. Airport Apron & Tarmac Ground Base (220m x 220m dark asphalt)
-    const apronMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.86 });
-    const apron = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), apronMat);
-    apron.rotation.x = -Math.PI / 2;
-    apron.position.set(0, 0.038, -30);
-    apron.receiveShadow = true;
-    airportGroup.add(apron);
-
-    // 2. Active Main Runway 23/05 (320m x 38m)
-    this.buildAirportRunway(airportGroup);
-
-    // 3. Modern International Passenger Terminal Complex (T1/T2)
-    this.buildAirportTerminal(airportGroup);
-
-    // 4. Iconic Air Traffic Control (ATC) Tower with Animated Radar
-    this.buildAirportATCTower(airportGroup);
-
-    // 5. Commercial Airliners (Fictional Liveries: Garvi Gujarat Airways & Air Khodiyar)
-    this.buildAirportAirliners(airportGroup);
-
-    // 6. Landside Grand Sardar Patel Entrance Plaza, Viaduct Flyover & Fountains
-    this.buildAirportLandsidePlaza(airportGroup);
-
-    // 7. Animated Sky-Circling Airborne Aircraft (Flight GJ-202)
-    this.buildAirborneAircraft(airportGroup);
-
-    group.add(airportGroup);
-  }
-
-  /**
-   * Build Active Runway 23/05 with threshold piano keys, centerline stripes, touchdown markings & edge lights
-   */
-  private buildAirportRunway(parent: THREE.Group) {
-    const runwayGroup = new THREE.Group();
-    runwayGroup.position.set(0, 0, -110);
-
-    const rwLength = 320;
-    const rwWidth = 36;
-
-    // Dark asphalt runway surface
-    const rwMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
-    const runwaySurface = new THREE.Mesh(new THREE.PlaneGeometry(rwLength, rwWidth), rwMat);
-    runwaySurface.rotation.x = -Math.PI / 2;
-    runwaySurface.position.y = 0.042;
-    runwaySurface.receiveShadow = true;
-    runwayGroup.add(runwaySurface);
-
-    // Runway Yellow Shoulder Strips
-    const shoulderMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.95 });
-    [-rwWidth / 2 - 2, rwWidth / 2 + 2].forEach((sy) => {
-      const sh = new THREE.Mesh(new THREE.PlaneGeometry(rwLength, 4), shoulderMat);
-      sh.rotation.x = -Math.PI / 2;
-      sh.position.set(0, 0.040, sy);
-      runwayGroup.add(sh);
-    });
-
-    // White Runway Threshold Piano Keys (8 bars each end)
-    [-rwLength / 2 + 15, rwLength / 2 - 15].forEach((endX) => {
-      for (let k = -7; k <= 7; k += 2) {
-        const key = new THREE.Mesh(new THREE.PlaneGeometry(12, 1.4), this.whiteLineMat);
-        key.rotation.x = -Math.PI / 2;
-        key.position.set(endX, 0.046, k * 1.8);
-        runwayGroup.add(key);
-      }
-    });
-
-    // Runway Centerline Dashes
-    const dashCount = Math.floor(rwLength / 18);
-    for (let d = 0; d < dashCount; d++) {
-      const dx = -rwLength / 2 + 28 + d * 18;
-      if (dx < rwLength / 2 - 28) {
-        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(10, 1.2), this.whiteLineMat);
-        stripe.rotation.x = -Math.PI / 2;
-        stripe.position.set(dx, 0.046, 0);
-        runwayGroup.add(stripe);
-      }
-    }
-
-    // Touchdown Zone Aiming Point Markings (Broad White Rectangles)
-    [-rwLength / 2 + 55, rwLength / 2 - 55].forEach((tx) => {
-      [-6, 6].forEach((tz) => {
-        const aim = new THREE.Mesh(new THREE.PlaneGeometry(24, 3.2), this.whiteLineMat);
-        aim.rotation.x = -Math.PI / 2;
-        aim.position.set(tx, 0.046, tz);
-        runwayGroup.add(aim);
-      });
-    });
-
-    // Runway Designation Heading Text Boards ("23" and "05")
-    this.createBoard(runwayGroup, '23', -rwLength / 2 + 26, 0.2, 0, 4, 3);
-    this.createBoard(runwayGroup, '05', rwLength / 2 - 26, 0.2, 0, 4, 3);
-
-    // Elevated Runway Edge Lights (Alternating White, Green Threshold, Red End)
-    const lightStep = 24;
-    const count = Math.floor(rwLength / lightStep);
-    const edgeOffset = rwWidth / 2 + 0.8;
-
-    for (let i = 0; i <= count; i++) {
-      const lx = -rwLength / 2 + i * lightStep;
-      [-edgeOffset, edgeOffset].forEach((lz) => {
-        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.45), this.steelMat);
-        post.position.set(lx, 0.22, lz);
-
-        const isThreshold = i === 0 || i === count;
-        const bulbColor = isThreshold ? 0x22c55e : 0xf8fafc;
-        const bulbMat = new THREE.MeshBasicMaterial({ color: bulbColor });
-        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), bulbMat);
-        bulb.position.set(lx, 0.45, lz);
-
-        runwayGroup.add(post, bulb);
-      });
-    }
-
-    // Taxiway connecting Runway to Terminal Apron (Yellow center guide line)
-    const taxiway = new THREE.Mesh(new THREE.PlaneGeometry(28, 65), rwMat);
-    taxiway.rotation.x = -Math.PI / 2;
-    taxiway.position.set(-40, 0.041, 35);
-    runwayGroup.add(taxiway);
-
-    const taxiLine = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 65), this.roadMarkingMat);
-    taxiLine.rotation.x = -Math.PI / 2;
-    taxiLine.position.set(-40, 0.046, 35);
-    runwayGroup.add(taxiLine);
-
-    // Illuminated Airport Windsock
-    const sockMast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 7), this.steelMat);
-    sockMast.position.set(rwLength / 2 - 35, 3.5, 26);
-    const sockCone = new THREE.Mesh(new THREE.ConeGeometry(0.7, 3.2, 8), this.brightRedMat);
-    sockCone.rotation.z = Math.PI / 2;
-    sockCone.position.set(rwLength / 2 - 33, 6.8, 26);
-    runwayGroup.add(sockMast, sockCone);
-
-    parent.add(runwayGroup);
-  }
-
-  /**
-   * Build Grand Modern Passenger Terminal with Wave-Form Roof, Glass Curtain Walls,
-   * Departures Flyover Viaduct, and Telescopic Boarding Aerobridges
-   */
-  private buildAirportTerminal(parent: THREE.Group) {
-    const termGroup = new THREE.Group();
-    termGroup.position.set(0, 0, -25);
-
-    // 1. Main Terminal Building Body (80m x 28m x 14m)
-    const termBody = new THREE.Mesh(new THREE.BoxGeometry(80, 12, 26), this.stoneMat);
-    termBody.position.set(0, 6, 0);
-    termBody.castShadow = true;
-    termGroup.add(termBody);
-
-    // 2. High-Tech Glass Curtain Walls (Front Airside & Back Landside)
-    const glassAirside = new THREE.Mesh(new THREE.PlaneGeometry(76, 11), this.glassMat);
-    glassAirside.position.set(0, 6, -13.1);
-    glassAirside.rotation.y = Math.PI;
-
-    const glassLandside = new THREE.Mesh(new THREE.PlaneGeometry(76, 11), this.glassMat);
-    glassLandside.position.set(0, 6, 13.1);
-
-    termGroup.add(glassAirside, glassLandside);
-
-    // 3. Iconic Wave-Form Curved Canopy Roof (White/Steel architectural wings)
-    const roofCurve = new THREE.Mesh(new THREE.BoxGeometry(88, 1.4, 34), this.steelMat);
-    roofCurve.position.set(0, 12.8, 0);
-    roofCurve.rotation.x = -0.04;
-    termGroup.add(roofCurve);
-
-    // Secondary Overhanging Front Canopy Wing
-    const canopyFront = new THREE.Mesh(new THREE.BoxGeometry(84, 0.8, 8), this.steelMat);
-    canopyFront.position.set(0, 13.6, 18);
-    canopyFront.rotation.x = 0.08;
-    termGroup.add(canopyFront);
-
-    // 4. Departures Viaduct Flyover Roadway Ramp (Elevated drop-off on first floor)
-    const rampMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.85 });
-    const flyover = new THREE.Mesh(new THREE.BoxGeometry(76, 0.8, 10), rampMat);
-    flyover.position.set(0, 5.5, 19);
-    termGroup.add(flyover);
-
-    // Flyover Stainless Steel Guardrails
-    const railMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.8 });
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(76, 1.0, 0.2), railMat);
-    rail.position.set(0, 6.4, 23.9);
-    termGroup.add(rail);
-
-    // Viaduct Concrete Support Pillars
-    [-30, -15, 0, 15, 30].forEach((px) => {
-      const pier = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 5.5, 8), this.stoneMat);
-      pier.position.set(px, 2.75, 19);
-      termGroup.add(pier);
-    });
-
-    // 5. Directional Highway Overhead Gantries on Departures/Arrivals Levels
-    this.createBoard(termGroup, '✈️ DEPARTURES (પ્રસ્થાન) ↑ T1 / T2', -18, 9.5, 23.5, 16, 1.6);
-    this.createBoard(termGroup, '🛬 ARRIVALS (આગમન) ↓ GROUND LEVEL', 18, 9.5, 23.5, 16, 1.6);
-
-    // 6. Illuminated Main Airport Facade Signboard (Gujarati & English)
-    this.createBoard(termGroup, '✈️ સરદાર વલ્લભભાઈ પટેલ આંતરરાષ્ટ્રીય વિમાનમથક', 0, 15.0, 14.0, 36, 2.2);
-
-    // 7. Telescopic Passenger Boarding Aerobridges (Gate 1 & Gate 2 on airside)
-    [-22, 22].forEach((gx, idx) => {
-      const gatePier = new THREE.Group();
-      gatePier.position.set(gx, 0, -13);
-
-      // Gate Fixed Rotunda
-      const rotunda = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, 4.5, 12), this.steelMat);
-      rotunda.position.set(0, 6.5, 0);
-
-      // Telescopic Airbridge Tube (angled out to plane door)
-      const bridgeTube = new THREE.Mesh(new THREE.BoxGeometry(2.8, 3.0, 16), this.steelMat);
-      bridgeTube.position.set(idx === 0 ? -4 : 4, 6.2, -8);
-      bridgeTube.rotation.y = idx === 0 ? 0.35 : -0.35;
-
-      // Airbridge Glass Strip Window
-      const bridgeGlass = new THREE.Mesh(new THREE.PlaneGeometry(14, 1.4), this.glassMat);
-      bridgeGlass.position.set(idx === 0 ? -4.1 : 4.1, 6.4, -8);
-      bridgeGlass.rotation.y = idx === 0 ? 0.35 + Math.PI / 2 : -0.35 - Math.PI / 2;
-
-      // Adjustable Wheel Bogie Support
-      const bogieLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 4.5), this.steelMat);
-      bogieLeg.position.set(idx === 0 ? -7 : 7, 2.25, -14);
-      const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-      const bogieWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 12), tireMat);
-      bogieWheel.rotation.z = Math.PI / 2;
-      bogieWheel.position.set(idx === 0 ? -7 : 7, 0.6, -14);
-
-      gatePier.add(rotunda, bridgeTube, bridgeGlass, bogieLeg, bogieWheel);
-
-      // Gate Number LED Display
-      this.createBoard(gatePier, `GATE ${idx + 1}`, 0, 9.2, 1.0, 5, 1.2);
-
-      termGroup.add(gatePier);
-    });
-
-    parent.add(termGroup);
-  }
-
-  /**
-   * Build Iconic Air Traffic Control (ATC) Tower (36m tall) with 360-degree glass control cab,
-   * animated rotating radar scanner, and aviation hazard beacon.
-   */
-  private buildAirportATCTower(parent: THREE.Group) {
-    const atcGroup = new THREE.Group();
-    atcGroup.position.set(58, 0, -45);
-
-    // 1. Concrete Base & Operations Annex (16m x 14m x 5m)
-    const baseBuilding = new THREE.Mesh(new THREE.BoxGeometry(16, 5, 14), this.stoneMat);
-    baseBuilding.position.set(0, 2.5, 0);
-    atcGroup.add(baseBuilding);
-
-    // 2. Tower Shaft (30m tall octagonal concrete column)
-    const towerShaft = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 3.4, 28, 8), this.stoneMat);
-    towerShaft.position.set(0, 19, 0);
-    towerShaft.castShadow = true;
-    atcGroup.add(towerShaft);
-
-    // Vertical Architectural Ribs along Tower
-    for (let r = 0; r < 4; r++) {
-      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.4, 26, 6.2), this.steelMat);
-      rib.position.set(0, 18, 0);
-      rib.rotation.y = (r * Math.PI) / 4;
-      atcGroup.add(rib);
-    }
-
-    // 3. Flared Upper Cantilever Platform & Visual Control Room Cab
-    const cabFloor = new THREE.Mesh(new THREE.CylinderGeometry(5.8, 3.0, 2.5, 16), this.steelMat);
-    cabFloor.position.set(0, 33.5, 0);
-    atcGroup.add(cabFloor);
-
-    // 360-degree Slanted Tinted Glass Windows
-    const cabGlass = new THREE.Mesh(new THREE.CylinderGeometry(5.6, 5.0, 3.2, 16, 1, true), this.glassMat);
-    cabGlass.position.set(0, 36.0, 0);
-    atcGroup.add(cabGlass);
-
-    // Overhanging Roof Sun-Shade
-    const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 5.8, 0.8, 16), this.steelMat);
-    cabRoof.position.set(0, 38.0, 0);
-    atcGroup.add(cabRoof);
-
-    // 4. Rooftop Communications Spire & Animated Primary Surveillance Radar
-    const antennaSpire = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 6), this.steelMat);
-    antennaSpire.position.set(0, 41.5, 0);
-    atcGroup.add(antennaSpire);
-
-    // Red Flashing Obstruction Hazard Beacon on top
-    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), this.brightRedMat);
-    beacon.position.set(0, 44.5, 0);
-    atcGroup.add(beacon);
-
-    // Animated Rotating Radar Dish Antenna
-    const radarAssembly = new THREE.Group();
-    radarAssembly.position.set(2.4, 38.8, 0);
-
-    const radarMast = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 1.4), this.steelMat);
-    radarMast.position.y = 0.7;
-    const radarDish = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.7, 0.15), this.steelMat);
-    radarDish.position.y = 1.4;
-    const radarFeed = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.8), this.brightRedMat);
-    radarFeed.position.set(0, 1.4, 0.4);
-    radarFeed.rotation.x = Math.PI / 2;
-
-    radarAssembly.add(radarMast, radarDish, radarFeed);
-    atcGroup.add(radarAssembly);
-    this.animatableRadars.push(radarAssembly);
-
-    // ATC Tower Name Sign
-    this.createBoard(atcGroup, '🏢 SVPIA AIR TRAFFIC CONTROL TOWER', 0, 5.8, 7.1, 14, 1.4);
-
-    parent.add(atcGroup);
-  }
-
-  /**
-   * Build Commercial Airliners in Authentic Fictional Gujarati Liveries
-   */
-  private buildAirportAirliners(parent: THREE.Group) {
-    // Airliner 1: "ગરવી ગુજરાત એરવેઝ (Garvi Gujarat Airways)" - Docked at Gate 1
-    const airliner1 = this.createAirlinerModel({
-      liveryName: 'Garvi Gujarat Airways',
-      airlineNameGujarati: 'ગરવી ગુજરાત એરવેઝ',
-      primaryColor: 0xffffff,
-      stripeColor: 0xf97316, // Saffron orange
-      tailColor: 0x0284c7, // Peacock cyan blue
-      flightNumber: 'GJ-101 (London / Heathrow)',
-    });
-    airliner1.position.set(-28, 0, -42);
-    airliner1.rotation.y = 0.25;
-    parent.add(airliner1);
-
-    // Ground Service Equipment (GSE) parked next to Airliner 1
-    this.buildGroundSupportEquipment(parent, -28, -42);
-
-    // Airliner 2: "ખોડિયાર એર (Air Khodiyar Express)" - Parked at Remote Apron Stand 3
-    const airliner2 = this.createAirlinerModel({
-      liveryName: 'Air Khodiyar Express',
-      airlineNameGujarati: 'ખોડિયાર એક્સપ્રેસ',
-      primaryColor: 0xf8fafc,
-      stripeColor: 0xdc2626, // Red
-      tailColor: 0xfacc15, // Golden yellow
-      flightNumber: 'KH-505 (Dubai International)',
-    });
-    airliner2.position.set(24, 0, -68);
-    airliner2.rotation.y = -0.3;
-    parent.add(airliner2);
-
-    // Passenger Mobile Stair Truck at Airliner 2 forward door
-    this.buildPassengerStairTruck(parent, 20, -65);
-
-    // Aviation Jet Fuel Bowser Tanker Truck
-    this.buildFuelTankerTruck(parent, 34, -72);
-  }
-
-  /**
-   * Helper to construct detailed 3D twin-jet commercial airliner model
-   */
-  private createAirlinerModel(opts: {
-    liveryName: string;
-    airlineNameGujarati: string;
-    primaryColor: number;
-    stripeColor: number;
-    tailColor: number;
-    flightNumber: string;
-  }): THREE.Group {
-    const plane = new THREE.Group();
-
-    const fuseMat = new THREE.MeshStandardMaterial({ color: opts.primaryColor, roughness: 0.35, metalness: 0.1 });
-    const stripeMat = new THREE.MeshStandardMaterial({ color: opts.stripeColor, roughness: 0.4 });
-    const tailMat = new THREE.MeshStandardMaterial({ color: opts.tailColor, roughness: 0.35 });
-    const cockpitMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.1, metalness: 0.9 });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-
-    // 1. Fuselage Main Body (Length 34m, Diameter 3.4m)
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 26, 16), fuseMat);
-    fuselage.rotation.x = Math.PI / 2;
-    fuselage.position.set(0, 3.8, 0);
-    plane.add(fuselage);
-
-    // Aerodynamic Nose Cone
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(1.7, 5.0, 16), fuseMat);
-    nose.rotation.x = -Math.PI / 2;
-    nose.position.set(0, 3.8, 15.5);
-    plane.add(nose);
-
-    // Cockpit Windshield Windows
-    const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.7, 1.4), cockpitMat);
-    cockpit.position.set(0, 4.6, 14.2);
-    cockpit.rotation.x = 0.25;
-    plane.add(cockpit);
-
-    // Tapered Tail Cone
-    const tailCone = new THREE.Mesh(new THREE.ConeGeometry(1.7, 6.5, 16), fuseMat);
-    tailCone.rotation.x = Math.PI / 2;
-    tailCone.position.set(0, 4.1, -16.2);
-    plane.add(tailCone);
-
-    // Decorative Cheatline Stripe along Fuselage
-    const cheatline = new THREE.Mesh(new THREE.CylinderGeometry(1.72, 1.72, 24, 16, 1, true), stripeMat);
-    cheatline.rotation.x = Math.PI / 2;
-    cheatline.position.set(0, 3.8, 1);
-    plane.add(cheatline);
-
-    // 2. Swept-Back Main Wings (Wingspan 32m)
-    const wingMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.45 });
-    const wingSpan = 30;
-    const leftWing = new THREE.Mesh(new THREE.BoxGeometry(wingSpan / 2, 0.35, 4.5), wingMat);
-    leftWing.position.set(-8.2, 3.2, -1.5);
-    leftWing.rotation.set(-0.06, 0.22, 0.08); // Anhedral + sweep
-
-    const rightWing = new THREE.Mesh(new THREE.BoxGeometry(wingSpan / 2, 0.35, 4.5), wingMat);
-    rightWing.position.set(8.2, 3.2, -1.5);
-    rightWing.rotation.set(-0.06, -0.22, -0.08);
-
-    // Upturned Blended Winglets on Tips
-    const leftWinglet = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.8, 1.2), stripeMat);
-    leftWinglet.position.set(-15.8, 4.2, -4.2);
-    leftWinglet.rotation.y = 0.22;
-
-    const rightWinglet = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.8, 1.2), stripeMat);
-    rightWinglet.position.set(15.8, 4.2, -4.2);
-    rightWinglet.rotation.y = -0.22;
-
-    plane.add(leftWing, rightWing, leftWinglet, rightWinglet);
-
-    // 3. Twin High-Bypass Turbofan Jet Engines under wings
-    [-5.5, 5.5].forEach((ex) => {
-      const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 0.9, 4.2, 16), this.steelMat);
-      nacelle.rotation.x = Math.PI / 2;
-      nacelle.position.set(ex, 2.2, 1.2);
-
-      // Engine Intake Spinner Cone
-      const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.8, 12), cockpitMat);
-      spinner.rotation.x = -Math.PI / 2;
-      spinner.position.set(ex, 2.2, 3.4);
-
-      // Engine Pylon Mount
-      const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.0, 2.0), this.steelMat);
-      pylon.position.set(ex, 3.0, 0.8);
-
-      plane.add(nacelle, spinner, pylon);
-    });
-
-    // 4. Vertical Stabilizer Tail Fin with Airline Emblem
-    const verticalFin = new THREE.Mesh(new THREE.BoxGeometry(0.3, 6.2, 4.8), tailMat);
-    verticalFin.position.set(0, 7.8, -15.5);
-    verticalFin.rotation.x = -0.38;
-
-    // Horizontal Tail Stabilizers
-    const leftTail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.25, 2.2), wingMat);
-    leftTail.position.set(-3.0, 5.0, -17.0);
-    leftTail.rotation.y = 0.25;
-
-    const rightTail = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.25, 2.2), wingMat);
-    rightTail.position.set(3.0, 5.0, -17.0);
-    rightTail.rotation.y = -0.25;
-
-    plane.add(verticalFin, leftTail, rightTail);
-
-    // 5. Landing Gear (Nose gear + Main gear with dual tires)
-    // Nose Gear
-    const noseStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2), this.steelMat);
-    noseStrut.position.set(0, 1.1, 12.0);
-    const noseTireL = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 12), tireMat);
-    noseTireL.rotation.z = Math.PI / 2;
-    noseTireL.position.set(-0.25, 0.4, 12.0);
-    const noseTireR = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.2, 12), tireMat);
-    noseTireR.rotation.z = Math.PI / 2;
-    noseTireR.position.set(0.25, 0.4, 12.0);
-    plane.add(noseStrut, noseTireL, noseTireR);
-
-    // Main Gear
-    [-3.2, 3.2].forEach((mx) => {
-      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 2.2), this.steelMat);
-      strut.position.set(mx, 1.1, -1.0);
-      const tireL = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.25, 12), tireMat);
-      tireL.rotation.z = Math.PI / 2;
-      tireL.position.set(mx - 0.35, 0.55, -1.0);
-      const tireR = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.25, 12), tireMat);
-      tireR.rotation.z = Math.PI / 2;
-      tireR.position.set(mx + 0.35, 0.55, -1.0);
-      plane.add(strut, tireL, tireR);
-    });
-
-    // Flight Info Tag Board
-    this.createBoard(plane, `${opts.airlineNameGujarati} | ${opts.flightNumber}`, 0, 5.8, 5.0, 14, 1.2);
-
-    return plane;
-  }
-
-  /**
-   * Build Ground Support Equipment (GSE): Tug, GPU Cart, Luggage Container Train
-   */
-  private buildGroundSupportEquipment(parent: THREE.Group, px: number, pz: number) {
-    const gseGroup = new THREE.Group();
-    gseGroup.position.set(px, 0, pz);
-
-    const tugMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.5 });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-
-    // 1. Aircraft Pushback Tug Tractor
-    const tug = new THREE.Group();
-    tug.position.set(0, 0, 18);
-
-    const tugBody = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.2, 5.2), tugMat);
-    tugBody.position.y = 0.8;
-    const tugCab = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.1, 1.8), this.glassMat);
-    tugCab.position.set(0, 1.8, 1.2);
-
-    [-1.8, 1.8].forEach((wx) => {
-      [-1.6, 1.6].forEach((wz) => {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.3, 12), tireMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(wx, 0.5, wz);
-        tug.add(wheel);
-      });
-    });
-
-    tug.add(tugBody, tugCab);
-    gseGroup.add(tug);
-
-    // 2. Baggage Tow Tractor with 3 Luggage Container Carts (AKE Containers)
-    const bagTractor = new THREE.Group();
-    bagTractor.position.set(-12, 0, 4);
-
-    const tractorBody = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 2.8), tugMat);
-    tractorBody.position.y = 0.65;
-    bagTractor.add(tractorBody);
-
-    // 3 Luggage Carts
-    for (let c = 1; c <= 3; c++) {
-      const cart = new THREE.Group();
-      cart.position.set(0, 0, -c * 3.4);
-
-      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.2, 2.8), this.steelMat);
-      bed.position.y = 0.35;
-
-      const container = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.4, 2.4), this.steelMat);
-      container.position.y = 1.15;
-
-      cart.add(bed, container);
-      bagTractor.add(cart);
-    }
-    gseGroup.add(bagTractor);
-
-    parent.add(gseGroup);
-  }
-
-  /**
-   * Build Mobile Passenger Boarding Stair Truck
-   */
-  private buildPassengerStairTruck(parent: THREE.Group, px: number, pz: number) {
-    const stairTruck = new THREE.Group();
-    stairTruck.position.set(px, 0, pz);
-
-    const truckMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, roughness: 0.5 });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-
-    // Chassis Truck
-    const chassis = new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.0, 6.5), truckMat);
-    chassis.position.y = 0.7;
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 1.8), this.glassMat);
-    cab.position.set(0, 1.8, 2.2);
-
-    [-1.3, 1.3].forEach((wx) => {
-      [-2.0, 0, 2.0].forEach((wz) => {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.25, 12), tireMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(wx, 0.45, wz);
-        stairTruck.add(wheel);
-      });
-    });
-
-    // Angled Stairway Ramp reaching up to plane door
-    const stairs = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.3, 7.5), this.steelMat);
-    stairs.position.set(0, 2.6, -1.0);
-    stairs.rotation.x = -0.45;
-
-    const handrailL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 7.5), this.steelMat);
-    handrailL.position.set(-0.8, 3.0, -1.0);
-    handrailL.rotation.x = -0.45;
-
-    const handrailR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.8, 7.5), this.steelMat);
-    handrailR.position.set(0.8, 3.0, -1.0);
-    handrailR.rotation.x = -0.45;
-
-    stairTruck.add(chassis, cab, stairs, handrailL, handrailR);
-    parent.add(stairTruck);
-  }
-
-  /**
-   * Build Aviation Jet Fuel Tanker Truck
-   */
-  private buildFuelTankerTruck(parent: THREE.Group, px: number, pz: number) {
-    const tanker = new THREE.Group();
-    tanker.position.set(px, 0, pz);
-
-    const whiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.9 });
-
-    // Truck Cab
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(2.4, 2.2, 2.2), this.brightRedMat);
-    cab.position.set(0, 1.4, 3.6);
-
-    // Cylindrical Jet-A1 Fuel Tank
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 6.8, 16), whiteMat);
-    tank.rotation.x = Math.PI / 2;
-    tank.position.set(0, 1.8, -1.2);
-
-    [-1.2, 1.2].forEach((wx) => {
-      [-3.2, -1.2, 1.0, 3.6].forEach((wz) => {
-        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.48, 0.25, 12), tireMat);
-        wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(wx, 0.48, wz);
-        tanker.add(wheel);
-      });
-    });
-
-    tanker.add(cab, tank);
-    this.createBoard(tanker, '⛽ AVIATION JET-A1 FUEL', 0, 2.8, -1.2, 6.5, 1.0);
-
-    parent.add(tanker);
-  }
-
-  /**
-   * Build Landside Sardar Patel Plaza, Roundabout, Fountains, Palms, Parking & High-Mast Lighting
-   */
-  private buildAirportLandsidePlaza(parent: THREE.Group) {
-    const plaza = new THREE.Group();
-    plaza.position.set(0, 0, 28);
-
-    // 1. Central Monumental Roundabout with Bronze Statue of Sardar Vallabhbhai Patel
-    const fountainBase = new THREE.Mesh(new THREE.CylinderGeometry(11, 12, 0.8, 24), this.stoneMat);
-    fountainBase.position.set(0, 0.4, 0);
-
-    const poolWater = new THREE.Mesh(new THREE.CircleGeometry(10.5, 24), this.waterMat);
-    poolWater.rotation.x = -Math.PI / 2;
-    poolWater.position.set(0, 0.85, 0);
-
-    // Center Pedestal
-    const statuePedestal = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.2, 3.4), this.sandstoneMat);
-    statuePedestal.position.set(0, 2.4, 0);
-
-    // Bronze Statue of Sardar Vallabhbhai Patel (Dhoti, Kurta, Shawl)
-    const statueBody = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 4.2, 10), this.bronzeMat);
-    statueBody.position.set(0, 6.1, 0);
-
-    const statueHead = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 10), this.bronzeMat);
-    statueHead.position.set(0, 8.6, 0);
-
-    const statueShawl = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.3, 8, 16), this.bronzeMat);
-    statueShawl.rotation.x = Math.PI / 2;
-    statueShawl.position.set(0, 7.2, 0);
-
-    plaza.add(fountainBase, poolWater, statuePedestal, statueBody, statueHead, statueShawl);
-
-    // Statue Plaque Signboard
-    this.createBoard(plaza, 'લોહપુરુષ સરદાર વલ્લભભાઈ પટેલ સ્મારક', 0, 4.2, 1.8, 9, 1.2);
-
-    // 2. Symmetrical Royal Palm Trees along Entrance Boulevard
-    for (let p = -3; p <= 3; p++) {
-      if (p !== 0) {
-        this.createTree(plaza, p * 12, 14, 1.8, true);
-        this.createTree(plaza, p * 12, -14, 1.8, true);
-      }
-    }
-
-    // 3. Airport Parking Lot with Electric Shuttle Buses
-    const busMat = new THREE.MeshStandardMaterial({ color: 0x16a34a, roughness: 0.5 });
-    [-24, 24].forEach((bx, idx) => {
-      const shuttle = new THREE.Group();
-      shuttle.position.set(bx, 0, 18);
-
-      const busBody = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.4, 8.5), busMat);
-      busBody.position.y = 1.4;
-      const busWindows = new THREE.Mesh(new THREE.BoxGeometry(2.82, 1.0, 7.8), this.glassMat);
-      busWindows.position.y = 1.8;
-      shuttle.add(busBody, busWindows);
-
-      this.createBoard(shuttle, `⚡ SVPIA TERMINAL SHUTTLE ${idx + 1}`, 0, 2.9, 0, 6, 0.8);
-      plaza.add(shuttle);
-    });
-
-    // 4. Airport High-Mast Floodlight Towers (28m tall with 6-lamp LED cluster)
-    [-38, 38].forEach((hx) => {
-      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.5, 26, 8), this.steelMat);
-      mast.position.set(hx, 13, 0);
-
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.6, 0.15, 6, 12), this.steelMat);
-      ring.rotation.x = Math.PI / 2;
-      ring.position.set(hx, 25.5, 0);
-
-      const lampLight = new THREE.PointLight(0xffedd5, 3.0, 50);
-      lampLight.position.set(hx, 25, 0);
-
-      plaza.add(mast, ring, lampLight);
-    });
-
-    parent.add(plaza);
-  }
-
-  /**
-   * Build Animated Circling In-Flight Aircraft (Flight GJ-202) in the sky over Ahmedabad
-   */
-  private buildAirborneAircraft(parent: THREE.Group) {
-    const flightGroup = new THREE.Group();
-    const flightModel = this.createAirlinerModel({
-      liveryName: 'Airbus A350 Garvi',
-      airlineNameGujarati: 'ગરવી ગુજરાત એરલાઇન્સ',
-      primaryColor: 0xffffff,
-      stripeColor: 0x0284c7,
-      tailColor: 0xf97316,
-      flightNumber: 'GJ-202 (In-Flight / Takeoff)',
-    });
-    flightModel.scale.set(0.7, 0.7, 0.7);
-    flightGroup.add(flightModel);
-
-    // Wingtip Strobe LEDs
-    const strobeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    const strobeL = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), strobeMat);
-    strobeL.position.set(-11, 2.5, -3);
-    const strobeR = new THREE.Mesh(new THREE.SphereGeometry(0.3, 6, 6), strobeMat);
-    strobeR.position.set(11, 2.5, -3);
-    flightGroup.add(strobeL, strobeR);
-
-    // Initial positioning in sky over airport
-    const initialRadius = 140;
-    flightGroup.position.set(initialRadius, 65, -40);
-
-    parent.add(flightGroup);
-
-    this.animatableAirplanes.push({
-      group: flightGroup,
-      speed: 0.14,
-      radius: initialRadius,
-      baseAlt: 65,
-      angle: 0,
-      strobeTimer: 0,
-      strobeLights: [strobeL, strobeR],
-    });
-  }
-
-  /**
-   * Build roadside infrastructure: Gujarati Petrol Pumps, Mechanics, Toll Plazas, Dhabas
+   * Build roadside infrastructure. Every prop anchors to a real highway corridor via
+   * roadsidePlacements.ts (road/water/prop-safe placement), so services hug the routes
+   * they serve and never paint over asphalt, junctions or water.
    */
   private buildRoadsideScenery(locations: LocationData[]) {
     const roadsideGroup = new THREE.Group();
 
     // 1. Gujarati Petrol Pumps ("શ્રી ગણેશ પેટ્રોલિયમ")
-    this.buildPetrolStation(roadsideGroup, 220, 80, '⛽ શ્રી ગણેશ પેટ્રોલિયમ (HP)');
-    this.buildPetrolStation(roadsideGroup, -120, -180, '⛽ ખોડિયાર પેટ્રોલિયમ (IndianOil)');
-    this.buildPetrolStation(roadsideGroup, 110, 470, '⛽ ગીર હાઇવે પેટ્રોલિયમ');
+    for (const p of PETROL_PUMPS) {
+      this.buildPetrolStation(roadsideGroup, p.spot.x, p.spot.z, p.name);
+    }
 
     // 2. Roadside Mechanic & Puncture Garages ("રણછોડ ઓટો ગેરેજ")
-    this.buildAutoGarage(roadsideGroup, 180, 45, '🔧 રણછોડ ઓટો ગેરેજ & પંચર');
-    this.buildAutoGarage(roadsideGroup, -85, 210, '🔧 બાલાજી છકડો સર્વિસ સેન્ટર');
+    for (const g of AUTO_GARAGES) {
+      this.buildAutoGarage(roadsideGroup, g.spot.x, g.spot.z, g.name);
+    }
 
-    // 3. Highway FASTag Toll Plaza
-    this.buildTollPlaza(roadsideGroup, 300, 100);
+    // 3. Highway FASTag Toll Plaza — ON the expressway carriageway, aligned to its yaw
+    this.buildTollPlaza(roadsideGroup, TOLL_PLAZA.spot.x, TOLL_PLAZA.spot.z, TOLL_PLAZA.spot.angle);
 
-    // 4. Highway Water Crossings & Multi-Span Bridges with Real Water Rivers
-    this.buildAllWaterBridges(roadsideGroup);
+    // 4. Scenic river systems + standalone bridges (data-driven, road-free)
+    this.buildRiverSystems(getWaterBodySpecs());
 
     // 5. Agricultural Gujarat Farms (Windmills, Tubewells, Scarecrows, Tractors, Cotton Crops)
-    this.buildAllFarms(roadsideGroup);
+    for (const f of FARMS) {
+      this.buildFarm(roadsideGroup, f.spot.x, f.spot.z, f.name, f.cropColor, f.hasWindmill, f.hasTractor);
+    }
 
     // 6. GIDC Industrial Estates & Manufacturing Factories (Silos, Chimneys, Smoke)
-    this.buildAllFactories(roadsideGroup);
+    for (const f of FACTORIES) {
+      this.buildFactory(roadsideGroup, f.spot.x, f.spot.z, f.name, f.shedColor);
+    }
 
     // 7. Roadside Shops (Kirana, Paan Parlours, Handicrafts)
-    this.buildAllShops(roadsideGroup);
+    for (const s of SHOPS) {
+      this.buildShop(roadsideGroup, s.spot.x, s.spot.z, s.name, s.type);
+    }
 
     // 8. Modern Commercial Shopping Malls
-    this.buildAllMalls(roadsideGroup);
+    for (const m of MALLS) {
+      this.buildMall(roadsideGroup, m.spot.x, m.spot.z, m.name);
+    }
 
     // 9. Modern Corporate & High-Rise Buildings
-    this.buildAllBuildings(roadsideGroup);
+    for (const b of TOWERS) {
+      this.buildTower(roadsideGroup, b.spot.x, b.spot.z, b.name, b.height);
+    }
 
     // 10. Traditional Saurashtra Village Houses & Delis
-    this.buildAllHouses(roadsideGroup);
+    for (const h of HOUSES) {
+      this.buildHouse(roadsideGroup, h.spot.x, h.spot.z, h.name);
+    }
 
-    // 11. Roadside Food & Tea Stall Encounters (Ganthiya & Tea Kiosks)
-    this.buildRoadsideFoodStalls(roadsideGroup);
+    // 11. Roadside Food & Tea Stall Encounters — placed exactly at the ROADSIDE_ENCOUNTERS
+    //     positions (single source of truth shared with the trigger logic in GameWorld)
+    for (const enc of ROADSIDE_ENCOUNTERS) {
+      this.buildFoodStall(roadsideGroup, enc.worldPosition.x, enc.worldPosition.z, enc.nameGujarati, enc.type === 'tea_stall' ? 'tea' : 'ganthiya');
+    }
 
     // 12. Milestone Tree Groves along highway verges (outside asphalt + clearance buffer)
     const segments = RoadGeometryHelper.getSegments();
@@ -2530,253 +1764,138 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Build 3D Bridges with authentic flowing water channels underneath
+   * Render every water body declared in waterBodies.ts (except externallyRendered ones
+   * drawn by their zone builders): water plane, stone banks for elongated rivers, and an
+   * optional standalone bridge across it. Every rectangle is verified road-free by the
+   * zoneLayout tests, so no highway ever crosses open water without a real bridge —
+   * because no highway crosses any of these water bodies at all.
    */
-  private buildAllWaterBridges(parent: THREE.Group) {
-    const bridges = [
-      {
-        id: 'sabarmati',
-        name: '🌉 સાબરમતી નદી મહાસેતુ (Sabarmati River Bridge)',
-        x: -140,
-        z: -40,
-        width: 18,
-        length: 80,
-        riverWidth: 70,
-        riverLength: 260,
-        riverAngle: 0.85,
-        hasArch: true,
-      },
-      {
-        id: 'narmada',
-        name: '🌉 શ્રી નર્મદા મૈયા કેબલ બ્રિજ (Narmada Cable Bridge)',
-        x: -210,
-        z: 220,
-        width: 18,
-        length: 90,
-        riverWidth: 80,
-        riverLength: 280,
-        riverAngle: -0.4,
-        isCableStayed: true,
-      },
-      {
-        id: 'tapi',
-        name: '🌉 તાપી નદી બ્રિજ (Tapi River Bridge)',
-        x: -180,
-        z: 360,
-        width: 18,
-        length: 80,
-        riverWidth: 70,
-        riverLength: 240,
-        riverAngle: 0.3,
-        isCableStayed: true,
-      },
-      {
-        id: 'kutch_gulf',
-        name: '🌉 કચ્છ પ્રવેશ દ્વાર મહાસેતુ (Gulf of Kutch Causeway)',
-        x: -70,
-        z: -250,
-        width: 18,
-        length: 85,
-        riverWidth: 75,
-        riverLength: 260,
-        riverAngle: -0.7,
-        hasArch: false,
-      },
-      {
-        id: 'road_to_heaven',
-        name: '🌉 રોડ ટુ હેવન કોઝવે પુલ (Road to Heaven Bridge)',
-        x: -150,
-        z: -380,
-        width: 16,
-        length: 80,
-        riverWidth: 70,
-        riverLength: 250,
-        riverAngle: 0.5,
-        hasArch: false,
-      },
-    ];
+  private buildRiverSystems(specs: WaterBodySpec[]) {
+    const waterGroup = new THREE.Group();
+    const bankMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.9 });
+    const railMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.6 });
 
-    for (const b of bridges) {
-      const bGroup = new THREE.Group();
-      bGroup.position.set(b.x, 0, b.z);
+    for (const w of specs) {
+      if (w.externallyRendered) continue;
 
-      // 1. Water Channel Underneath Bridge
-      const riverWater = new THREE.Mesh(
-        new THREE.PlaneGeometry(b.riverWidth, b.riverLength),
-        this.waterMat
-      );
-      riverWater.rotation.x = -Math.PI / 2;
-      riverWater.rotation.z = b.riverAngle;
-      riverWater.position.y = 0.04;
-      bGroup.add(riverWater);
+      const water = new THREE.Mesh(new THREE.PlaneGeometry(w.sx, w.sz), this.waterMat);
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(w.x, 0.08, w.z);
+      waterGroup.add(water);
 
-      // Riverbanks Embankment
-      const bankMat = new THREE.MeshStandardMaterial({ color: 0x78716c, roughness: 0.9 });
-      const bankL = new THREE.Mesh(new THREE.BoxGeometry(b.riverWidth, 0.4, 6), bankMat);
-      bankL.position.set(0, 0.2, -b.length / 2 - 2);
-      const bankR = new THREE.Mesh(new THREE.BoxGeometry(b.riverWidth, 0.4, 6), bankMat);
-      bankR.position.set(0, 0.2, b.length / 2 + 2);
-      bGroup.add(bankL, bankR);
+      const alongX = w.sx >= w.sz;
+      const longLen = alongX ? w.sx : w.sz;
+      const shortLen = alongX ? w.sz : w.sx;
 
-      // 2. Concrete Bridge Piers Extending into River
-      const pierMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.7 });
-      const pierOffsets = [-24, 0, 24];
-      for (const pz of pierOffsets) {
-        // Left & Right Cylindrical Pier Columns
-        const pLeft = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 6, 12), pierMat);
-        pLeft.position.set(-b.width / 2 + 1.2, 0.8, pz);
-        const pRight = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 6, 12), pierMat);
-        pRight.position.set(b.width / 2 - 1.2, 0.8, pz);
-
-        // Crosshead Beam
-        const crossBeam = new THREE.Mesh(new THREE.BoxGeometry(b.width + 1.5, 1.2, 3.2), pierMat);
-        crossBeam.position.set(0, 3.2, pz);
-        bGroup.add(pLeft, pRight, crossBeam);
-      }
-
-      // 3. Heavy-Duty Side Guard Rails & Crash Barriers
-      const barrierMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
-      const railMat = new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.7 });
-
-      // Concrete side parapet base
-      const parapetL = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, b.length), barrierMat);
-      parapetL.position.set(-b.width / 2 - 0.4, 0.48, 0);
-      const parapetR = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.9, b.length), barrierMat);
-      parapetR.position.set(b.width / 2 + 0.4, 0.48, 0);
-
-      // Steel tubular handrail on top
-      const railL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, b.length), railMat);
-      railL.position.set(-b.width / 2 - 0.4, 1.2, 0);
-      const railR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, b.length), railMat);
-      railR.position.set(b.width / 2 + 0.4, 1.2, 0);
-
-      bGroup.add(parapetL, parapetR, railL, railR);
-
-      // 4. Cable Stayed Pylons (for Narmada / Tapi bridges)
-      if (b.isCableStayed) {
-        const pylonMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.5 });
-        const cableWireMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9 });
-
-        // Center A-frame Pylon Tower (Height 36m)
-        const pylonLeft = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 34, 8), pylonMat);
-        pylonLeft.position.set(-b.width / 2 - 1.5, 17, 0);
-        pylonLeft.rotation.z = -0.06;
-
-        const pylonRight = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.2, 34, 8), pylonMat);
-        pylonRight.position.set(b.width / 2 + 1.5, 17, 0);
-        pylonRight.rotation.z = 0.06;
-
-        const topCrest = new THREE.Mesh(new THREE.BoxGeometry(b.width + 5, 2.0, 3.0), this.goldMat);
-        topCrest.position.set(0, 34, 0);
-
-        bGroup.add(pylonLeft, pylonRight, topCrest);
-
-        // Suspension Stay Cables radiating down to bridge deck
-        for (let c = -4; c <= 4; c++) {
-          if (c === 0) continue;
-          const cableZ = c * 8;
-          const cableLen = Math.hypot(30, Math.abs(cableZ));
-
-          const cable1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, cableLen), cableWireMat);
-          cable1.position.set(-b.width / 2 - 0.2, 17, cableZ / 2);
-          cable1.rotation.x = Math.atan2(cableZ, 30);
-          cable1.rotation.z = -0.08;
-
-          const cable2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, cableLen), cableWireMat);
-          cable2.position.set(b.width / 2 + 0.2, 17, cableZ / 2);
-          cable2.rotation.x = Math.atan2(cableZ, 30);
-          cable2.rotation.z = 0.08;
-
-          bGroup.add(cable1, cable2);
+      // Elongated water = river → stone banks give it a hard edge against land
+      if (shortLen / longLen < 0.5) {
+        const bankGeo = alongX
+          ? new THREE.BoxGeometry(longLen + 4, 0.6, 3)
+          : new THREE.BoxGeometry(3, 0.6, longLen + 4);
+        const off = shortLen / 2 + 1.5;
+        const bankA = new THREE.Mesh(bankGeo, bankMat);
+        const bankB = new THREE.Mesh(bankGeo, bankMat);
+        if (alongX) {
+          bankA.position.set(w.x, 0.3, w.z - off);
+          bankB.position.set(w.x, 0.3, w.z + off);
+        } else {
+          bankA.position.set(w.x - off, 0.3, w.z);
+          bankB.position.set(w.x + off, 0.3, w.z);
         }
+        waterGroup.add(bankA, bankB);
       }
 
-      // 5. Overhead Decorative Steel Arch (for Sabarmati bridge)
-      if (b.hasArch) {
-        const archSteelMat = new THREE.MeshStandardMaterial({ color: 0xd97706, metalness: 0.8 });
-        const archLeft = new THREE.Mesh(new THREE.TorusGeometry(b.length / 2, 0.6, 8, 24, Math.PI), archSteelMat);
-        archLeft.position.set(-b.width / 2 - 0.5, 0, 0);
-        archLeft.rotation.y = Math.PI / 2;
+      if (w.bridge) {
+        const bridge = new THREE.Group();
+        bridge.position.set(w.x, 0, w.z);
+        const deckLen = shortLen + 18; // rests on both banks
+        const deck = alongX
+          ? new THREE.Mesh(new THREE.BoxGeometry(8, 0.7, deckLen), this.stoneMat)
+          : new THREE.Mesh(new THREE.BoxGeometry(deckLen, 0.7, 8), this.stoneMat);
+        deck.position.y = 2.6;
+        bridge.add(deck);
 
-        const archRight = new THREE.Mesh(new THREE.TorusGeometry(b.length / 2, 0.6, 8, 24, Math.PI), archSteelMat);
-        archRight.position.set(b.width / 2 + 0.5, 0, 0);
-        archRight.rotation.y = Math.PI / 2;
+        // Guard rails along the deck (deck spans Z for E-W rivers, X for N-S rivers)
+        const railGeo = alongX
+          ? new THREE.BoxGeometry(0.3, 0.8, deckLen)
+          : new THREE.BoxGeometry(deckLen, 0.8, 0.3);
+        const railA = new THREE.Mesh(railGeo, railMat);
+        const railB = new THREE.Mesh(railGeo, railMat);
+        if (alongX) {
+          railA.position.set(-3.9, 3.3, 0);
+          railB.position.set(3.9, 3.3, 0);
+        } else {
+          railA.position.set(0, 3.3, -3.9);
+          railB.position.set(0, 3.3, 3.9);
+        }
+        bridge.add(railA, railB);
 
-        bGroup.add(archLeft, archRight);
+        // Piers down into the water
+        const pierMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.7 });
+        for (const p of [-shortLen / 4, shortLen / 4]) {
+          const pier = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.4, 3.4, 10), pierMat);
+          if (alongX) pier.position.set(0, 1.2, p);
+          else pier.position.set(p, 1.2, 0);
+          bridge.add(pier);
+        }
+
+        if (w.bridge === 'pedestrian') {
+          // Atal-Bridge-style white arches rising along the deck
+          const archMat = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.3 });
+          for (const s of [-1, 1]) {
+            const arch = new THREE.Mesh(new THREE.TorusGeometry(deckLen / 2.6, 0.45, 8, 24, Math.PI), archMat);
+            if (alongX) {
+              arch.rotation.y = Math.PI / 2;
+              arch.position.set(0, 0.6, s * 3.2);
+            } else {
+              arch.position.set(s * 3.2, 0.6, 0);
+            }
+            bridge.add(arch);
+          }
+        } else if (w.bridge === 'cable') {
+          // Cable-stayed pylon + radiating stays
+          const pylonMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, metalness: 0.5 });
+          const cableMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.9 });
+          const pylon = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 1.4, 34, 8), pylonMat);
+          pylon.position.y = 17;
+          bridge.add(pylon);
+          const crest = new THREE.Mesh(new THREE.BoxGeometry(10, 1.6, 2.4), this.goldMat);
+          crest.position.y = 34;
+          bridge.add(crest);
+          for (let c = -4; c <= 4; c++) {
+            if (c === 0) continue;
+            const cableZ = c * (deckLen / 10);
+            const cableLen = Math.hypot(28, Math.abs(cableZ));
+            const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, cableLen), cableMat);
+            if (alongX) {
+              cable.position.set(cableZ / 2, 16, 0);
+              cable.rotation.z = Math.atan2(cableZ, 28);
+            } else {
+              cable.position.set(0, 16, cableZ / 2);
+              cable.rotation.x = Math.atan2(cableZ, 28);
+            }
+            bridge.add(cable);
+          }
+        } else {
+          // causeway: low concrete slab deck already reads from the rails + piers
+        }
+
+        waterGroup.add(bridge);
       }
-
-      // 6. Bridge Milestone Signboards at both approaches
-      this.createBoard(bGroup, b.name, 0, 4.5, -b.length / 2 - 4, 18, 1.6);
-      this.createBoard(bGroup, b.name, 0, 4.5, b.length / 2 + 4, 18, 1.6);
-
-      // 7. Bridge LED Streetlights along deck
-      for (let lz = -b.length / 2 + 10; lz <= b.length / 2 - 10; lz += 20) {
-        const postL = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 6), this.steelMat);
-        postL.position.set(-b.width / 2 - 0.8, 3.0, lz);
-        const lampL = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.4), this.goldMat);
-        lampL.position.set(-b.width / 2 - 0.4, 6.0, lz);
-
-        const postR = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 6), this.steelMat);
-        postR.position.set(b.width / 2 + 0.8, 3.0, lz);
-        const lampR = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.4), this.goldMat);
-        lampR.position.set(b.width / 2 + 0.4, 6.0, lz);
-
-        bGroup.add(postL, lampL, postR, lampR);
-      }
-
-      parent.add(bGroup);
     }
+
+    this.scene.add(waterGroup);
   }
 
   /**
-   * Build Agricultural Farms along rural highways (Windmills, Tubewells, Scarecrows, Tractors, Cotton Crops)
+   * Build an Agricultural Farm along a rural highway (Windmill, Tubewell, Scarecrow, Tractor, Cotton Crops)
    */
-  private buildAllFarms(parent: THREE.Group) {
-    const farms = [
-      {
-        name: '🌾 શ્રી ખોડિયાર એગ્રી ફાર્મ (કપાસ & મગફળી)',
-        x: 130,
-        z: 150,
-        cropColor: 0xca8a04, // Golden mustard
-        hasWindmill: true,
-        hasTractor: true,
-        hasScarecrow: true,
-      },
-      {
-        name: '🌾 સરદાર પટેલ કિસાન ફાર્મ (ઓર્ગેનિક કપાસ)',
-        x: -160,
-        z: -90,
-        cropColor: 0x15803d, // Lush green
-        hasWindmill: true,
-        hasTractor: true,
-        hasScarecrow: true,
-      },
-      {
-        name: '🌾 સૌરાષ્ટ્ર પ્રાકૃતિક ફાર્મ',
-        x: 260,
-        z: -80,
-        cropColor: 0xd97706, // Groundnut gold
-        hasWindmill: true,
-        hasTractor: false,
-        hasScarecrow: true,
-      },
-      {
-        name: '🌾 ગોપાલ કૃષિ ફાર્મ & બોરવેલ',
-        x: -90,
-        z: 140,
-        cropColor: 0x166534, // Dark green
-        hasWindmill: false,
-        hasTractor: true,
-        hasScarecrow: true,
-      },
-    ];
+  private buildFarm(parent: THREE.Group, x: number, z: number, name: string, cropColor: number, hasWindmill: boolean, hasTractor: boolean) {
+    const fGroup = new THREE.Group();
+    fGroup.position.set(x, 0, z);
 
-    for (const f of farms) {
-      const fGroup = new THREE.Group();
-      fGroup.position.set(f.x, 0, f.z);
-
-      // 1. Crop Field Base
-      this.createCropField(fGroup, 0, 0, 48, 36, f.cropColor);
+    // 1. Crop Field Base
+    this.createCropField(fGroup, 0, 0, 48, 36, cropColor);
 
       // Cotton Puffs / Crop Rows on the field
       const cottonMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
@@ -2788,8 +1907,8 @@ export class EnvironmentBuilder {
         }
       }
 
-      // 2. Working Windmill (પવનચક્કી)
-      if (f.hasWindmill) {
+    // 2. Working Windmill (પવનચક્કી)
+    if (hasWindmill) {
         const windmillTower = new THREE.Group();
         windmillTower.position.set(-18, 0, -12);
 
@@ -2841,8 +1960,8 @@ export class EnvironmentBuilder {
       canal.position.set(0, 0.15, -12);
       fGroup.add(canal);
 
-      // 4. Traditional Scarecrow (ચાડિયો)
-      if (f.hasScarecrow) {
+    // 4. Traditional Scarecrow (ચાડિયો)
+    {
         const scarecrow = new THREE.Group();
         scarecrow.position.set(6, 0, 4);
 
@@ -2870,8 +1989,8 @@ export class EnvironmentBuilder {
         fGroup.add(scarecrow);
       }
 
-      // 5. Farm Tractor with Hay Wagon
-      if (f.hasTractor) {
+    // 5. Farm Tractor with Hay Wagon
+    if (hasTractor) {
         const tractor = new THREE.Group();
         tractor.position.set(-10, 0, 10);
         tractor.rotation.y = 0.4;
@@ -2923,54 +2042,22 @@ export class EnvironmentBuilder {
       fenceRail.position.set(0, 1.1, 18);
       fGroup.add(fenceRail);
 
-      // Farm Signboard
-      this.createBoard(fGroup, f.name, 0, 3.2, 18.2, 14, 1.4);
+    // Farm Signboard
+    this.createBoard(fGroup, name, 0, 3.2, 18.2, 14, 1.4);
 
-      parent.add(fGroup);
-    }
+    parent.add(fGroup);
   }
 
   /**
-   * Build Industrial Factories & Manufacturing GIDC Estates (Silos, Chimneys, Animated Smoke, Loading Bays)
+   * Build an Industrial GIDC Factory (Silos, Chimney with Animated Smoke, Loading Bays)
    */
-  private buildAllFactories(parent: THREE.Group) {
-    const factories = [
-      {
-        name: '🏭 GIDC સિરામિક્સ & ટાઇલ્સ મેન્યુફેક્ચરિંગ પ્લાન્ટ',
-        x: -180,
-        z: 250,
-        shedColor: 0x0369a1, // Deep Blue
-        hasChimney: true,
-      },
-      {
-        name: '🏭 રાજકોટ એન્જિનિયરિંગ & ફાઉન્ડ્રી GIDC',
-        x: 190,
-        z: -210,
-        shedColor: 0x15803d, // Industrial Green
-        hasChimney: true,
-      },
-      {
-        name: '🏭 સુરત સિન્થેટિક્સ & ટેક્સટાઇલ પ્રોસેસિંગ મિલ',
-        x: -280,
-        z: 360,
-        shedColor: 0x475569, // Steel Grey
-        hasChimney: true,
-      },
-      {
-        name: '🏭 અમદાવાદ ફાર્મા & કેમિકલ પાર્ક',
-        x: -310,
-        z: -60,
-        shedColor: 0x0891b2, // Cyan Blue
-        hasChimney: true,
-      },
-    ];
-
-    for (const f of factories) {
+  private buildFactory(parent: THREE.Group, x: number, z: number, name: string, shedColor: number) {
+    {
       const factGroup = new THREE.Group();
-      factGroup.position.set(f.x, 0, f.z);
+      factGroup.position.set(x, 0, z);
 
       // 1. Large Industrial Corrugated Manufacturing Shed (36m x 20m x 10m)
-      const shedMat = new THREE.MeshStandardMaterial({ color: f.shedColor, roughness: 0.6, metalness: 0.4 });
+      const shedMat = new THREE.MeshStandardMaterial({ color: shedColor, roughness: 0.6, metalness: 0.4 });
       const mainShed = new THREE.Mesh(new THREE.BoxGeometry(36, 9, 20), shedMat);
       mainShed.position.set(0, 4.5, 0);
       mainShed.castShadow = true;
@@ -2983,7 +2070,7 @@ export class EnvironmentBuilder {
       factGroup.add(mainShed, roof);
 
       // 2. Tall Industrial Chimney (Height 26m) with Rising Smoke Particle System
-      if (f.hasChimney) {
+      {
         const chimneyMat = new THREE.MeshStandardMaterial({ color: 0x64748b, roughness: 0.8 });
         const chimney = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, 24, 12), chimneyMat);
         chimney.position.set(14, 12, -8);
@@ -3041,46 +2128,19 @@ export class EnvironmentBuilder {
       });
 
       // 5. Factory Billboard Signboard
-      this.createBoard(factGroup, f.name, 0, 8.5, 10.1, 18, 1.6);
+      this.createBoard(factGroup, name, 0, 8.5, 10.1, 18, 1.6);
 
       parent.add(factGroup);
     }
   }
 
   /**
-   * Build Roadside Village & Highway Commercial Shops (Kirana, Paan Parlours, Handicrafts)
+   * Build a Roadside Village & Highway Commercial Shop (Kirana, Paan Parlour, Handicrafts)
    */
-  private buildAllShops(parent: THREE.Group) {
-    const shops = [
-      {
-        name: '🏪 શ્રી ગણેશ કરિયાણા & જનરલ સ્ટોર્સ',
-        x: 75,
-        z: 45,
-        type: 'kirana',
-      },
-      {
-        name: '🏪 જય બજરંગ પાન પાર્લર & કોલ્ડ્રિંક્સ',
-        x: -135,
-        z: 125,
-        type: 'paan',
-      },
-      {
-        name: '🏪 હસ્તકલા & બાંધણી એમ્પોરિયમ',
-        x: 210,
-        z: -95,
-        type: 'handicraft',
-      },
-      {
-        name: '🏪 મા ખોડિયાર ડેરી & સ્વીટ માર્ટ',
-        x: -65,
-        z: -145,
-        type: 'dairy',
-      },
-    ];
-
-    for (const s of shops) {
+  private buildShop(parent: THREE.Group, x: number, z: number, name: string, type: 'kirana' | 'paan' | 'handicraft' | 'dairy') {
+    {
       const sGroup = new THREE.Group();
-      sGroup.position.set(s.x, 0, s.z);
+      sGroup.position.set(x, 0, z);
 
       // 1. Shop Building
       const shopBuilding = new THREE.Mesh(new THREE.BoxGeometry(8, 4.2, 6), this.sandstoneMat);
@@ -3089,7 +2149,7 @@ export class EnvironmentBuilder {
 
       // 2. Striped Shop Awning Canopy
       const awningMat = new THREE.MeshStandardMaterial({
-        color: s.type === 'paan' ? 0xdc2626 : s.type === 'handicraft' ? 0x9333ea : 0x0284c7,
+        color: type === 'paan' ? 0xdc2626 : type === 'handicraft' ? 0x9333ea : 0x0284c7,
         roughness: 0.4,
       });
       const awning = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.2, 2.5), awningMat);
@@ -3104,39 +2164,26 @@ export class EnvironmentBuilder {
       sGroup.add(counter);
 
       // Paan Parlour Cold Drink Refrigerator
-      if (s.type === 'paan') {
+      if (type === 'paan') {
         const fridge = new THREE.Mesh(new THREE.BoxGeometry(1.4, 2.4, 1.0), this.glassMat);
         fridge.position.set(-2.5, 1.2, 2.0);
         sGroup.add(fridge);
       }
 
       // Shop Signboard
-      this.createBoard(sGroup, s.name, 0, 4.6, 3.1, 8.5, 1.2);
+      this.createBoard(sGroup, name, 0, 4.6, 3.1, 8.5, 1.2);
 
       parent.add(sGroup);
     }
   }
 
   /**
-   * Build Modern Gujarat Commercial Shopping Malls
+   * Build a Modern Gujarat Commercial Shopping Mall
    */
-  private buildAllMalls(parent: THREE.Group) {
-    const malls = [
-      {
-        name: '🏬 ગુજરાત સેન્ટ્રલ મેગા મોલ & મલ્ટિપ્લેક્સ',
-        x: -130,
-        z: -30,
-      },
-      {
-        name: '🏬 રિલાયન્સ મેગા શોપિંગ પ્લાઝા',
-        x: 260,
-        z: 30,
-      },
-    ];
-
-    for (const m of malls) {
+  private buildMall(parent: THREE.Group, x: number, z: number, name: string) {
+    {
       const mallGroup = new THREE.Group();
-      mallGroup.position.set(m.x, 0, m.z);
+      mallGroup.position.set(x, 0, z);
 
       // 1. Multi-tier Grand Curved Mall Facade (45m x 18m x 26m)
       const baseBuilding = new THREE.Mesh(new THREE.BoxGeometry(45, 14, 26), this.stoneMat);
@@ -3153,7 +2200,7 @@ export class EnvironmentBuilder {
       mallGroup.add(baseBuilding, glassFacade, portico);
 
       // 2. Rooftop Illuminated Neon Header Sign
-      this.createBoard(mallGroup, m.name, 0, 16.5, 13.2, 26, 2.4);
+      this.createBoard(mallGroup, name, 0, 16.5, 13.2, 26, 2.4);
 
       // 3. Landscaped Palm Plaza in front of mall
       for (let p = -3; p <= 3; p++) {
@@ -3167,54 +2214,30 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Build High-Rise Corporate & Commercial Glass Buildings / Towers
+   * Build a High-Rise Corporate & Commercial Glass Tower
    */
-  private buildAllBuildings(parent: THREE.Group) {
-    const towers = [
-      {
-        name: '🏢 ગિફ્ટ સિટી હાઇ-ટેક ટાવર્સ (GIFT City Tower)',
-        x: -220,
-        z: -110,
-        floors: 12,
-        height: 42,
-      },
-      {
-        name: '🏢 સૌરાષ્ટ્ર કોર્પોરેટ પાર્ક & બિઝનેસ હબ',
-        x: -255,
-        z: 180,
-        floors: 10,
-        height: 35,
-      },
-      {
-        name: '🏢 રત્નમ ડાયમંડ કોમર્શિયલ સેન્ટર',
-        x: 85,
-        z: -170,
-        floors: 11,
-        height: 38,
-      },
-    ];
-
-    for (const b of towers) {
+  private buildTower(parent: THREE.Group, x: number, z: number, name: string, height: number) {
+    {
       const bGroup = new THREE.Group();
-      bGroup.position.set(b.x, 0, b.z);
+      bGroup.position.set(x, 0, z);
 
       // 1. Concrete Core & Glass Tower
-      const towerCore = new THREE.Mesh(new THREE.BoxGeometry(22, b.height, 22), this.stoneMat);
-      towerCore.position.set(0, b.height / 2, 0);
+      const towerCore = new THREE.Mesh(new THREE.BoxGeometry(22, height, 22), this.stoneMat);
+      towerCore.position.set(0, height / 2, 0);
 
       // Architectural Glass Curtain Facade
-      const glass1 = new THREE.Mesh(new THREE.PlaneGeometry(20, b.height - 4), this.glassMat);
-      glass1.position.set(0, b.height / 2, 11.1);
+      const glass1 = new THREE.Mesh(new THREE.PlaneGeometry(20, height - 4), this.glassMat);
+      glass1.position.set(0, height / 2, 11.1);
 
-      const glass2 = new THREE.Mesh(new THREE.PlaneGeometry(20, b.height - 4), this.glassMat);
-      glass2.position.set(0, b.height / 2, -11.1);
+      const glass2 = new THREE.Mesh(new THREE.PlaneGeometry(20, height - 4), this.glassMat);
+      glass2.position.set(0, height / 2, -11.1);
       glass2.rotation.y = Math.PI;
 
       // Rooftop Communication Mast / Antenna
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 10), this.steelMat);
-      mast.position.set(0, b.height + 5, 0);
+      mast.position.set(0, height + 5, 0);
       const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.4, 6, 6), this.brightRedMat);
-      beacon.position.set(0, b.height + 10, 0);
+      beacon.position.set(0, height + 10, 0);
 
       bGroup.add(towerCore, glass1, glass2, mast, beacon);
 
@@ -3223,42 +2246,19 @@ export class EnvironmentBuilder {
       canopy.position.set(0, 4.5, 13.5);
       bGroup.add(canopy);
 
-      this.createBoard(bGroup, b.name, 0, 5.8, 14.5, 16, 1.4);
+      this.createBoard(bGroup, name, 0, 5.8, 14.5, 16, 1.4);
 
       parent.add(bGroup);
     }
   }
 
   /**
-   * Build Traditional Saurashtra Village Houses & Delis (Mangalore tiles, Osari, Charpai, Tulsi Kyara, Toran)
+   * Build a Traditional Saurashtra Village House (Mangalore tiles, Osari, Charpai, Tulsi Kyara)
    */
-  private buildAllHouses(parent: THREE.Group) {
-    const houses = [
-      {
-        name: '🏡 ગોપાલભાઈનું ગામઠી મકાન & ડેલી',
-        x: 55,
-        z: -85,
-      },
-      {
-        name: '🏡 રણછોડદાસની કાઠિયાવાડી હવેલી',
-        x: 135,
-        z: 300,
-      },
-      {
-        name: '🏡 બાપા સીતારામ નિવાસ & ઓસરી',
-        x: -95,
-        z: 260,
-      },
-      {
-        name: '🏡 કિસાન નિવાસ',
-        x: 275,
-        z: 180,
-      },
-    ];
-
-    for (const h of houses) {
+  private buildHouse(parent: THREE.Group, x: number, z: number, name: string) {
+    {
       const hGroup = new THREE.Group();
-      hGroup.position.set(h.x, 0, h.z);
+      hGroup.position.set(x, 0, z);
 
       // 1. Whitewashed & Sandstone Village House Base (14m x 9m x 4.5m)
       const houseBody = new THREE.Mesh(new THREE.BoxGeometry(14, 4.2, 9), this.sandstoneMat);
@@ -3328,87 +2328,21 @@ export class EnvironmentBuilder {
       hGroup.add(potStack);
 
       // House Name Signboard
-      this.createBoard(hGroup, h.name, 0, 4.8, 5.5, 10, 1.2);
+      this.createBoard(hGroup, name, 0, 4.8, 5.5, 10, 1.2);
 
       parent.add(hGroup);
     }
   }
 
   /**
-   * Build 3D Visual Models for Roadside Food & Tea Stalls matching ROADSIDE_ENCOUNTERS
+   * Build a 3D Visual Model for a Roadside Food / Tea Stall (matches ROADSIDE_ENCOUNTERS)
    */
-  private buildRoadsideFoodStalls(parent: THREE.Group) {
-    const stalls = [
-      {
-        id: 'enc_rajkot_tea',
-        name: '☕ જય ખોડિયાર કડક મસાલા ચા',
-        type: 'tea',
-        x: 120,
-        z: -40,
-      },
-      {
-        id: 'enc_rajkot_ganthiya',
-        name: '🥨 રાજકોટ લાઈવ વણેલા ગાંઠિયા રથ',
-        type: 'ganthiya',
-        x: -60,
-        z: -80,
-      },
-      {
-        id: 'enc_bhavnagar_ganthiya',
-        name: '🥨 ભાવનગરી તીખા ગાંઠિયા & જલેબી સ્ટોલ',
-        type: 'ganthiya',
-        x: 80,
-        z: 220,
-      },
-      {
-        id: 'enc_ahmedabad_gotas',
-        name: '🧆 હાઇવે લીલી મેથીના ગોટા & કઢી',
-        type: 'ganthiya',
-        x: -240,
-        z: 60,
-      },
-      {
-        id: 'enc_rth_tea',
-        name: '🫖 રોડ ટુ હેવન રણ ટી પોઇન્ટ',
-        type: 'tea',
-        x: -180,
-        z: -450,
-      },
-      {
-        id: 'enc_narmada_tea',
-        name: '☕ નર્મદા કિનારા કડક ચા & નાસ્તો',
-        type: 'tea',
-        x: -160,
-        z: 280,
-      },
-      {
-        id: 'enc_surat_locho',
-        name: '🍲 સુરતી લાઈવ બટર લોચો & ખમણ',
-        type: 'ganthiya',
-        x: -200,
-        z: 420,
-      },
-      {
-        id: 'enc_dwarka_penda',
-        name: '🍮 દ્વારકાધીશ પ્રસાદી પેંડા & ચા',
-        type: 'tea',
-        x: 410,
-        z: 80,
-      },
-      {
-        id: 'enc_airport_circle',
-        name: '✈️ એરપોર્ટ સર્કલ ટી & મસ્કાબન લાઉન્જ',
-        type: 'tea',
-        x: -270,
-        z: -40,
-      },
-    ];
-
-    for (const st of stalls) {
+  private buildFoodStall(parent: THREE.Group, x: number, z: number, name: string, type: 'tea' | 'ganthiya') {
+    {
       const stallGroup = new THREE.Group();
-      stallGroup.position.set(st.x, 0, st.z);
+      stallGroup.position.set(x, 0, z);
 
-      if (st.type === 'tea') {
+      if (type === 'tea') {
         // 1. Tea Stall / Kitli
         const stallCabin = new THREE.Mesh(new THREE.BoxGeometry(5.5, 3.2, 4.0), this.woodMat);
         stallCabin.position.set(0, 1.6, 0);
@@ -3480,7 +2414,7 @@ export class EnvironmentBuilder {
       }
 
       // Stall Board with Gujarati Name
-      this.createBoard(stallGroup, st.name, 0, 4.2, 2.2, 7.5, 1.3);
+      this.createBoard(stallGroup, name, 0, 4.2, 2.2, 7.5, 1.3);
 
       parent.add(stallGroup);
     }
@@ -3568,9 +2502,10 @@ export class EnvironmentBuilder {
     parent.add(garage);
   }
 
-  private buildTollPlaza(parent: THREE.Group, x: number, z: number) {
+  private buildTollPlaza(parent: THREE.Group, x: number, z: number, rotY = 0) {
     const toll = new THREE.Group();
     toll.position.set(x, 0, z);
+    toll.rotation.y = rotY; // align the arch across the carriageway yaw
 
     // Toll Plaza Overhead Arch
     const archMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.4 });
@@ -3591,6 +2526,26 @@ export class EnvironmentBuilder {
     });
 
     this.createBoard(toll, '🛣️ રાષ્ટ્રીય ધોરીમાર્ગ ટોલ પ્લાઝા (FASTag Lane)', 0, 8.8, 2.1, 20, 1.4);
+
+    // FASTag-lane boom barrier. Hinged from a Group whose origin is the pivot; the pole
+    // extends toward the lane centre (−x) so rotation.z = −Math.PI/2 swings it straight up.
+    // Starts horizontal (rotation.z = 0) — GameWorld.payToll() drives the raise tween.
+    const boomPivot = new THREE.Group();
+    boomPivot.position.set(5.5, 1.4, 2.3);
+    const boomPole = new THREE.Mesh(
+      new THREE.BoxGeometry(4, 0.16, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.5 }),
+    );
+    boomPole.position.set(-2, 0, 0); // one end at the pivot, the other reaching across the lane
+    boomPivot.add(boomPole);
+    const boomTip = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 0.18, 0.18),
+      new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 }),
+    );
+    boomTip.position.set(-3.5, 0, 0);
+    boomPivot.add(boomTip);
+    toll.add(boomPivot);
+    this.tollBoomGates.push(boomPivot);
 
     parent.add(toll);
   }

@@ -31,6 +31,7 @@ import {
   RoadsideEncounter,
   PassportStampRecord,
   NavTarget,
+  TransmissionMode,
 } from './types';
 import { GUJARAT_LOCATIONS } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
@@ -48,7 +49,14 @@ import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 import { evaluateKakaTriggers } from './state/kakaTriggers';
 import { useKakaCompanion } from './state/useKakaCompanion';
 import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
-import { radioAudioEngine } from './audio/RadioAudioEngine';
+
+// Gujarati warning banners for procedural road incidents (see world/IncidentDirector).
+const INCIDENT_TEXT: Record<string, string> = {
+  cattle_crossing: 'ધ્યાન રાખો — ગાયો રસ્તો ક્રોસ કરે છે!',
+  stalled_truck: 'આગળ ટ્રક બગડ્યો છે — ધીમે!',
+  slow_tractor: 'આગળ ધીમું ટ્રેક્ટર — સાચવીને ઓવરટેક કરો.',
+  rain_puddle: 'આગળ ખાબોચિયું — સ્પીડ ઓછી કરો.',
+};
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,11 +70,21 @@ export default function App() {
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
+  const [gear, setGear] = useState<string>('N');
+  // Persisted gearbox prefs. The Expert toggle (StartScreen + a future in-game control) drives
+  // both: Expert on ⇒ manual gearbox, off ⇒ automatic. Persisted via the saveProgress payload.
+  const [transmissionMode, setTransmissionMode] = useState<TransmissionMode>(initial.transmissionMode);
+  const [expertMode, setExpertMode] = useState(initial.expertMode);
+  // handleGlobalKeys is registered once inside the world-init effect; it reads the live Expert
+  // flag through this ref rather than forcing that effect to re-run on every toggle.
+  const expertModeRef = useRef(expertMode);
+  expertModeRef.current = expertMode;
   const [currentLocation, setCurrentLocation] = useState<LocationData>(
     GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
   );
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
+  const [nearbyToll, setNearbyToll] = useState<{ name: string } | null>(null);
   const [nearbyEncounter, setNearbyEncounter] = useState<RoadsideEncounter | null>(null);
   const [activeEncounterModal, setActiveEncounterModal] = useState<RoadsideEncounter | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
@@ -77,8 +95,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [totalKm, setTotalKm] = useState(initial.totalKm);
 
-  // Economy & Progression
-  const [coins, setCoins] = useState(initial.coins);
+  // Progression
   const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
@@ -312,7 +329,9 @@ export default function App() {
   useEffect(() => {
     if (!isGameStarted || !containerRef.current) return;
 
-    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000);
+    // transmissionMode (not initial.*) so an Expert opt-in made on the StartScreen is already
+    // live when the world spins up; mid-game toggles go through world.setTransmissionMode.
+    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000, transmissionMode);
     worldRef.current = world;
     canvasRef.current = world.canvas;
 
@@ -324,6 +343,15 @@ export default function App() {
       setRpm(newRpm);
       setTotalKm(world.totalDistanceDriven / 1000);
     };
+
+    world.onGearChange = (g) => setGear(g);
+
+    // The WeatherDirector re-picks weather as the player drives between regions / times of
+    // day; mirror it into React so the HUD icon and Kaka context stay truthful.
+    world.onWeatherChange = (w) => setWeather(w);
+
+    // Procedural road incident just appeared ~40 units ahead — warn the player (banner only).
+    world.onIncident = (i) => notify({ text: INCIDENT_TEXT[i.kind], tone: 'warn', speak: false });
 
     // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
     // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
@@ -396,6 +424,8 @@ export default function App() {
       setNearbyFacility(facility ? { ...facility, distance: 10 } : null);
     };
 
+    world.onTollApproach = (t) => setNearbyToll(t);
+
     world.onEncounterApproach = (encounter) => {
       setNearbyEncounter(encounter);
     };
@@ -411,6 +441,13 @@ export default function App() {
       recordVisit(loc.id);
       checkMissionCompletion(loc.id);
     };
+
+    // Deep-link spawn: /?zone=ahmedabad starts the trip at that landmark (QA + shareable links)
+    const zoneParam = new URLSearchParams(window.location.search).get('zone');
+    if (zoneParam) {
+      const target = GUJARAT_LOCATIONS.find((l) => l.id === zoneParam);
+      if (target) world.teleportToLocation(target);
+    }
 
     // Keyboard Shortcuts
     const handleGlobalKeys = (e: KeyboardEvent) => {
@@ -433,12 +470,24 @@ export default function App() {
             ttlMs: 3000,
           });
         }
+      } else if (key === 'q') {
+        // Expert-only: shift down one gear.
+        if (!expertModeRef.current) return;
+        worldRef.current?.shiftDown();
       } else if (key === 'e') {
-        if (world.nearbyEncounter) {
+        // Expert mode repurposes E as shift-up; otherwise E is the landmark/encounter action.
+        if (expertModeRef.current) {
+          worldRef.current?.shiftUp();
+        } else if (world.nearbyEncounter) {
           setActiveEncounterModal(world.nearbyEncounter);
         } else if (world.nearbyLandmark) {
           setInspectingLandmark(world.nearbyLandmark);
         }
+      } else if (key === 'i') {
+        // Expert-only: manual engine start/stop (like q/e). In auto mode the engine is
+        // managed for the player. GameWorld also refuses to stop the engine above 1 km/h.
+        if (!expertModeRef.current) return;
+        worldRef.current?.toggleEngine();
       }
     };
 
@@ -508,7 +557,6 @@ export default function App() {
   // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
   useEffect(() => {
     saveProgress({
-      coins,
       reputationStars,
       visitedLocations,
       discoveredFoods,
@@ -521,9 +569,10 @@ export default function App() {
       lastLocationId: currentLocation.id,
       stampMeta,
       kakaMuted,
+      transmissionMode,
+      expertMode,
     });
   }, [
-    coins,
     reputationStars,
     visitedLocations,
     discoveredFoods,
@@ -536,6 +585,8 @@ export default function App() {
     currentLocation,
     stampMeta,
     kakaMuted,
+    transmissionMode,
+    expertMode,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -547,13 +598,10 @@ export default function App() {
 
   // The single entry point for "the player is now at locId". Adds to visitedLocations and,
   // on the FIRST visit only, writes the passport stamp (date + odometer) and awards a
-  // one-time reward. Safe to call from the stale world.onLocationChange closure: the guard
+  // Safe to call from the stale world.onLocationChange closure: the guard
   // reads visitedLocationsRef, and the ref is bumped synchronously so a paired callback
   // fire (onLandmarkApproach + onLocationChange for the same arrival) is a no-op.
   // Achievement unlocking stays a reaction to committed progress (see the effect above) —
-  // never a side effect inside a setState updater (StrictMode double-invokes updaters).
-  const FIRST_VISIT_COINS = 100;
-
   const recordVisit = (locId: string) => {
     if (visitedLocationsRef.current.includes(locId)) return;
     const km = worldRef.current ? worldRef.current.totalDistanceDriven / 1000 : totalKm;
@@ -562,9 +610,8 @@ export default function App() {
     setStampMeta((prev) =>
       prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
     );
-    setCoins((c) => c + FIRST_VISIT_COINS);
     pushKakaEvent({ kind: 'stamp', nameGujarati: locName(locId) });
-    notify({ text: `📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`, tone: 'reward', speak: false });
+    notify({ text: '📖 નવો પાસપોર્ટ સ્ટેમ્પ!', tone: 'reward', speak: false });
   };
 
   const handleDiscoverFood = (foodId: string) => {
@@ -575,13 +622,11 @@ export default function App() {
     if (encounter.foodId) {
       handleDiscoverFood(encounter.foodId);
     }
-    const coinsReward = encounter.rewardCoins ?? 35;
-    setCoins((prev) => prev + coinsReward);
     setReputationStars((prev) => Math.min(5, prev + 1));
     const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
     pushKakaEvent({ kind: 'food', nameGujarati: foodName });
     notify({
-      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`,
+      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ!`,
       tone: 'reward',
       speak: false,
     });
@@ -606,12 +651,10 @@ export default function App() {
       activeMissionRef.current = null;
       activePassengerRef.current = null;
 
-      const reward = mission.rewardCoins;
-      setCoins((c) => c + reward);
       setReputationStars((s) => Math.min(5.0, Number((s + 0.1).toFixed(1))));
       setCompletedMissions((m) => [...m, mission.id]);
 
-      const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
+      const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા!`;
       pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
@@ -651,49 +694,24 @@ export default function App() {
 
   const handleBuySouvenir = (souvenirId: string) => {
     const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
-    if (!item || collectedSouvenirs.includes(souvenirId) || coins < item.priceCoins) return;
-    // Make the collection add atomic + conditional so a double-click before re-render can't
-    // charge twice or push the id twice. `bought` gates the charge to the one call that
-    // actually appended the souvenir.
-    let bought = false;
-    setCollectedSouvenirs((prev) => {
-      if (prev.includes(souvenirId)) return prev;
-      bought = true;
-      return [...prev, souvenirId];
-    });
-    if (!bought) return;
-    setCoins((c) => c - item.priceCoins);
+    if (!item || collectedSouvenirs.includes(souvenirId)) return;
+    setCollectedSouvenirs((prev) => (prev.includes(souvenirId) ? prev : [...prev, souvenirId]));
     pushKakaEvent({ kind: 'souvenir', nameGujarati: item.nameGujarati });
-    notify({ text: `🛍️ ${item.nameGujarati} ખરીદ્યું!`, tone: 'reward', speak: false });
+    notify({ text: `🛍️ ${item.nameGujarati} સ્મૃતિમાં સાચવ્યું!`, tone: 'reward', speak: false });
   };
 
-  const handleQuizCorrect = (rewardCoins: number) => {
-    setCoins((c) => c + rewardCoins);
+  const handleQuizCorrect = () => {
     setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
     pushKakaEvent({ kind: 'quiz', correct: true });
-    notify({ text: `સાચો જવાબ! +₹${rewardCoins}`, tone: 'reward', speak: false });
-  };
-
-  const handleRefuel = () => {
-    if (coins >= 500) {
-      setCoins((c) => c - 500);
-      if (worldRef.current) {
-        worldRef.current.refuel(10);
-      }
-      pushKakaEvent({ kind: 'refuel' });
-      notify({ text: '⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!', tone: 'reward', speak: false });
-    }
+    notify({ text: 'સાચો જવાબ! શાબાશ!', tone: 'reward', speak: false });
   };
 
   const handleRepair = () => {
-    if (coins >= 200) {
-      setCoins((c) => c - 200);
-      if (worldRef.current) {
-        worldRef.current.repairPunctureAndCool();
-      }
-      pushKakaEvent({ kind: 'repair' });
-      notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
+    if (worldRef.current) {
+      worldRef.current.repairPunctureAndCool();
     }
+    pushKakaEvent({ kind: 'repair' });
+    notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
   };
 
   const handleStartGame = (startLoc: LocationData, isResume = false) => {
@@ -712,7 +730,7 @@ export default function App() {
   const initialLocation =
     GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0];
   const hasSave =
-    initial.visitedLocations.length > 1 || initial.totalKm > 0 || initial.coins !== 1200;
+    initial.visitedLocations.length > 1 || initial.totalKm > 0;
   const handleResume = () => handleStartGame(initialLocation, true);
 
   const handleToggleMute = () => {
@@ -734,6 +752,45 @@ export default function App() {
     }
   };
 
+  // Expert mode ⇔ manual gearbox. Flipping it also switches the transmission (and tells the
+  // running world), so the gauge badge and shift behaviour follow the one toggle. Both fields
+  // ride the existing saveProgress payload.
+  const handleToggleExpertMode = () => {
+    const next = !expertMode;
+    const mode: TransmissionMode = next ? 'manual' : 'auto';
+    setExpertMode(next);
+    setTransmissionMode(mode);
+    worldRef.current?.setTransmissionMode(mode);
+  };
+
+  const handleShiftUp = () => worldRef.current?.shiftUp();
+  const handleShiftDown = () => worldRef.current?.shiftDown();
+
+  const handleToggleEngine = () => {
+    const world = worldRef.current;
+    if (!world) return;
+    const wasOn = world.isEngineOn;
+    const nowOn = world.toggleEngine();
+    if (wasOn && nowOn) {
+      // Engine stayed on: refused to stop while the cart is still rolling.
+      notify({
+        text: 'છકડો ઊભો રાખીને એન્જિન બંધ કરો',
+        tone: 'info',
+        speak: false,
+        ttlMs: 3000,
+      });
+    } else if (!wasOn && !nowOn) {
+      notify({
+        text: 'એન્જિન ચાલુ કરવા છકડો ઊભો રાખો અને ગિયર N કે R માં નાખો',
+        tone: 'info',
+        speak: false,
+        ttlMs: 3500,
+      });
+    } else {
+      notify({ text: nowOn ? '🔑 એન્જિન ચાલુ' : '🔑 એન્જિન બંધ', tone: 'info', speak: false, ttlMs: 2500 });
+    }
+  };
+
   const handleChangeCamera = () => {
     if (worldRef.current) {
       const modes: CameraMode[] = ['chase', 'hood', 'passenger', 'cinematic', 'drone'];
@@ -749,8 +806,9 @@ export default function App() {
       const weathers: WeatherType[] = ['sunny', 'sunset', 'night', 'rain', 'fog'];
       const nextIdx = (weathers.indexOf(weather) + 1) % weathers.length;
       const nextWeather = weathers[nextIdx];
-      worldRef.current.setWeather(nextWeather);
-      setWeather(nextWeather);
+      // Manual pick wins for ~one cycle-distance (1400 m), then the region/time
+      // WeatherDirector resumes control. onWeatherChange mirrors it back into React state.
+      worldRef.current.setManualWeather(nextWeather);
     }
   };
 
@@ -780,6 +838,22 @@ export default function App() {
       };
       notify({ text: text[mode], tone: 'info', speak: false, ttlMs: 3000 });
     }
+  };
+
+  // "Rest till morning" — skip the day/night phase forward to the next 06:00. M3 is a plain
+  // skip; M4 ties it to dhaba stops. Does not touch the odometer.
+  const handleRest = () => {
+    const world = worldRef.current;
+    if (!world) return;
+    // Resume the live cycle first: a frozen clock ignores the phase offset (manualMode
+    // overrides rawProgress). setTimeFreezeMode('dynamic') clears manualMode but leaves the
+    // weather-clock latch stale, so clear that too. Then let the world skip the phase clock
+    // forward to the next 06:00 from its OWN live state — no React-side arithmetic, which
+    // used to read the frozen manualProgress hour and land at an arbitrary offset.
+    world.setTimeFreezeMode('dynamic');
+    world.clearWeatherClockFreeze();
+    world.advanceToHour(6);
+    notify({ text: 'સવાર પડી — તાજામાજા થઈને ચાલો!', tone: 'reward' });
   };
 
   const handleFastTravel = (loc: LocationData) => {
@@ -816,7 +890,6 @@ export default function App() {
         else if (intent.target === 'garage') setIsGarageOpen(true);
         break;
       case 'toggle':
-        if (intent.target === 'music') radioAudioEngine.togglePower();
         else if (intent.target === 'headlight') handleToggleHeadlight();
         else if (intent.target === 'mute') handleToggleMute();
         break;
@@ -907,6 +980,8 @@ export default function App() {
           hasSave={hasSave}
           lastLocationName={hasSave ? initialLocation.nameGujarati : null}
           onResume={handleResume}
+          expertMode={expertMode}
+          onToggleExpertMode={handleToggleExpertMode}
         />
       )}
 
@@ -949,12 +1024,38 @@ export default function App() {
         />
       )}
 
+      {/* Highway toll plaza prompt — pay ₹30, the boom gate rises, receipt notify, then it
+          stays quiet for 300 m. Matches the facility-pill look; fixed near the bottom-centre. */}
+      {isGameStarted && nearbyToll && (
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md bg-slate-950/90 border-2 border-amber-400 p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-4 animate-bounce pointer-events-auto">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="text-3xl shrink-0">🛣️</span>
+            <div className="min-w-0">
+              <h4 className="font-black text-amber-300 text-sm truncate">{nearbyToll.name}</h4>
+              <p className="text-xs text-slate-300">FASTag લેન — ગેટ ખૂલશે, આગળ વધો</p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              worldRef.current?.payToll();
+              setNearbyToll(null);
+              notify({ text: '🧾 FASTag ટોલ પાસ — સફર ચાલુ!', tone: 'info' });
+            }}
+            className="py-2 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg shrink-0"
+          >
+            આગળ વધો
+          </button>
+        </div>
+      )}
+
       {/* Primary In-Game HUD */}
       {isGameStarted && (
         <>
           <HUD
             speed={speed}
             rpm={rpm}
+            gear={gear}
+            transmissionMode={transmissionMode}
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
@@ -971,7 +1072,6 @@ export default function App() {
             healthState={vehicleHealth}
             activePassenger={activePassenger}
             activeMission={activeMission}
-            coins={coins}
             reputationStars={reputationStars}
             isMuted={isMuted}
             totalKm={totalKm}
@@ -982,6 +1082,7 @@ export default function App() {
             onChangeWeather={handleChangeWeather}
             onToggleFreezeDay={handleToggleFreezeDay}
             onSetTimeFreezeMode={handleSetTimeFreezeMode}
+            onRest={handleRest}
             onOpenMap={() => setIsMapOpen(true)}
             onOpenPassport={() => setIsPassportOpen(true)}
             onOpenFood={() => setIsFoodOpen(true)}
@@ -997,15 +1098,20 @@ export default function App() {
             onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
             onInspectLandmark={(loc) => setInspectingLandmark(loc)}
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
-            onRefuel={handleRefuel}
             onRepair={handleRepair}
             onInteractEncounter={(enc) => setActiveEncounterModal(enc)}
+            expertMode={expertMode}
+            onShiftUp={handleShiftUp}
+            onShiftDown={handleShiftDown}
+            onToggleEngine={handleToggleEngine}
           />
 
           {/* On-screen Mobile Pedals & Steer Controls */}
           <MobileControls
             onControlChange={handleMobileControl}
             onChangeCamera={handleChangeCamera}
+            expertMode={expertMode}
+            onShift={(dir) => (dir === 'up' ? handleShiftUp() : handleShiftDown())}
           />
         </>
       )}
@@ -1044,7 +1150,6 @@ export default function App() {
         availableMissions={GUJARAT_MISSIONS}
         activeMission={activeMission}
         activePassenger={activePassenger}
-        coins={coins}
         reputationStars={reputationStars}
         completedMissions={completedMissions}
         onAcceptMission={handleAcceptMission}
@@ -1055,7 +1160,6 @@ export default function App() {
         isOpen={isSouvenirsOpen}
         onClose={() => setIsSouvenirsOpen(false)}
         souvenirs={currentLocationSouvenirs}
-        coins={coins}
         onBuySouvenir={handleBuySouvenir}
       />
 
@@ -1071,6 +1175,11 @@ export default function App() {
         onClose={() => setIsPhotoModeOpen(false)}
         currentLocation={currentLocation}
         canvasRef={canvasRef}
+        visitedCount={visitedLocations.length}
+        totalCount={GUJARAT_LOCATIONS.length}
+        totalKm={totalKm}
+        phaseGujarati={timeOfDay?.phaseGujarati ?? ''}
+        routeVisitedIds={visitedLocations}
       />
 
       <PassportModal

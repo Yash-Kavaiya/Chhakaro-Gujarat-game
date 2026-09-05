@@ -1,14 +1,29 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { X, Camera, Download, Sparkles, Filter, Check } from 'lucide-react';
 import { LocationData, PhotoFilterId, PhotoFilter } from '../types';
 import { soundManager } from '../audio/SoundManager';
+import { projectPoints } from './mapProjection';
+import { GUJARAT_LOCATIONS } from '../data/locations';
 
 interface PhotoModeModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentLocation: LocationData;
   canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  /** Places visited so far, for the journey-card progress row. */
+  visitedCount: number;
+  /** Total places on the tour. */
+  totalCount: number;
+  /** Odometer, kilometres. */
+  totalKm: number;
+  /** Time-of-day phase label, e.g. "સોનેરી સાંજ"; empty string hides it. */
+  phaseGujarati: string;
+  /** Ids of visited places, for the tiny dotted Gujarat map. */
+  routeVisitedIds: string[];
 }
+
+/** 123 → ૧૨૩. Local copy (PassportModal has its own) to keep this component self-contained. */
+const toGu = (n: number): string => String(n).replace(/[0-9]/g, (d) => '૦૧૨૩૪૫૬૭૮૯'[+d]);
 
 const PHOTO_FILTERS: PhotoFilter[] = [
   { id: 'normal', name: 'અસલ (Natural)', cssFilter: 'none' },
@@ -24,10 +39,20 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
   onClose,
   currentLocation,
   canvasRef,
+  visitedCount,
+  totalCount,
+  totalKm,
+  phaseGujarati,
+  routeVisitedIds,
 }) => {
   const [selectedFilter, setSelectedFilter] = useState<PhotoFilterId>('kathiyawad_warm');
   const [snapshotUrl, setSnapshotUrl] = useState<string | null>(null);
   const [includeStamp, setIncludeStamp] = useState(true);
+  const [showFrame, setShowFrame] = useState(true);
+
+  // Tiny top-down Gujarat projection for the postcard's dotted map — same layout
+  // maths the MiniMap and GujaratMapModal use, just at a postcard-corner size.
+  const miniMap = useMemo(() => projectPoints(GUJARAT_LOCATIONS, 90, 8), []);
 
   if (!isOpen) return null;
 
@@ -156,6 +181,65 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Journey-card framing overlay (on-screen only — not baked into the download) */}
+            {snapshotUrl && showFrame && (
+              <div className="pointer-events-none absolute inset-0 z-10">
+                {/* subtle postcard inset border */}
+                <div className="absolute inset-2 rounded-xl border border-amber-200/25" />
+
+                {/* tiny Gujarat map — visited zones dotted amber, the rest dim */}
+                <div className="absolute right-3 top-3 rounded-lg border border-amber-400/40 bg-slate-950/70 p-1 shadow-lg backdrop-blur-sm">
+                  <svg width={90} height={90} viewBox={miniMap.viewBox} className="block">
+                    {GUJARAT_LOCATIONS.map((loc) => {
+                      const [x, y] = miniMap.project(loc.mapPosition ?? loc.worldPosition);
+                      const isVisited = routeVisitedIds.includes(loc.id);
+                      return (
+                        <circle
+                          key={loc.id}
+                          cx={x}
+                          cy={y}
+                          r={isVisited ? 2.6 : 1.7}
+                          className={isVisited ? 'fill-amber-400' : 'fill-slate-500/50'}
+                        />
+                      );
+                    })}
+                  </svg>
+                </div>
+
+                {/* bottom bar: location · phase, progress pips, kilometres */}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/92 via-slate-950/65 to-transparent px-4 pb-3 pt-10">
+                  <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-sm font-black text-amber-200 drop-shadow">
+                    <span>📍 {currentLocation.nameGujarati}</span>
+                    {phaseGujarati && (
+                      <>
+                        <span className="text-amber-400/60">·</span>
+                        <span className="text-xs font-bold text-amber-100/90">{phaseGujarati}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: totalCount }).map((_, i) => (
+                        <span
+                          key={i}
+                          className={`h-1.5 w-1.5 rounded-full ${
+                            i < visitedCount ? 'bg-amber-400' : 'bg-white/25'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[11px] font-bold text-amber-100/80">
+                      {toGu(visitedCount)}/{toGu(totalCount)}
+                    </span>
+                    <span className="text-amber-400/40">·</span>
+                    <span className="text-[11px] font-bold text-amber-100/80">
+                      🛣️ {toGu(Math.round(totalKm))} કિમી
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Filter Presets Selection */}
@@ -182,7 +266,7 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
             <label className="flex items-center space-x-2 text-xs font-bold text-slate-300 cursor-pointer">
               <input
                 type="checkbox"
@@ -192,6 +276,18 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
               />
               <span>📍 ગુજરાતી લોકેશન સ્ટેમ્પ ઉમેરો</span>
             </label>
+            <button
+              type="button"
+              onClick={() => setShowFrame((v) => !v)}
+              aria-pressed={showFrame}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
+                showFrame
+                  ? 'bg-amber-500/20 border-amber-400 text-amber-200'
+                  : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+            >
+              🎴 જર્ની કાર્ડ ફ્રેમ
+            </button>
           </div>
         </div>
 

@@ -20,6 +20,7 @@ const NAV_ALIASES: Record<string, string[]> = {
   statue_of_unity: ['સ્ટેચ્યુ ઓફ યુનિટી', 'સ્ટેચ્યુ', 'યુનિટી', 'કેવડિયા', 'statue of unity', 'statue', 'kevadia', 'unity'],
   saputara: ['સાપુતારા', 'saputara'],
   ahmedabad: ['અમદાવાદ', 'ahmedabad', 'amdavad'],
+  gandhinagar: ['ગાંધીનગર', 'gandhinagar'],
   surat: ['સુરત', 'surat'],
   patan_modhera: ['પાટણ', 'મોઢેરા', 'રાણકી વાવ', 'patan', 'modhera', 'rani ki vav'],
   pavagadh: ['પાવાગઢ', 'ચાંપાનેર', 'pavagadh', 'champaner'],

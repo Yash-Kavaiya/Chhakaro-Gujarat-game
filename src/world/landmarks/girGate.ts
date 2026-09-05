@@ -1,0 +1,126 @@
+import * as THREE from 'three';
+
+// Sasan Gir safari check-post + forest canopy. The caller positions the group at the zone
+// origin; +Z is the open/clearing side (toward the road), and the canopy wraps the other ~260°
+// (both ±X flanks and −Z behind) so the forest reads from every approach into the zone.
+const GATE_STONE = new THREE.MeshStandardMaterial({ color: 0x8c857a, roughness: 0.9, metalness: 0 });
+const TIMBER = new THREE.MeshStandardMaterial({ color: 0x8a5a2b, roughness: 0.85, metalness: 0 });
+const PLAQUE = new THREE.MeshStandardMaterial({ color: 0x24603a, roughness: 0.6, metalness: 0 });
+const LEAF = new THREE.MeshStandardMaterial({ color: 0x2f6b2f, roughness: 0.9, metalness: 0 });
+const TRUNK = new THREE.MeshStandardMaterial({ color: 0x6b4423, roughness: 0.95, metalness: 0 });
+const HUT_WALL = new THREE.MeshStandardMaterial({ color: 0xc9a86a, roughness: 0.9, metalness: 0 });
+
+// Shared low-poly trunk — every canopy clump reuses this geometry.
+const TRUNK_GEO = new THREE.CylinderGeometry(0.35, 0.5, 4, 6);
+
+/**
+ * Adds ~60 deterministic tree clumps in a partial ring around the gate. The seeded loop sweeps a
+ * ~260° arc from +140° through −Z round to +40°, so it wraps both ±X flanks and the −Z rear while
+ * leaving a ~100° gap open toward +Z (the road / clearing). Radius stays ≥ 22 so the gate apron is
+ * clear. No Math.random — identical every run.
+ *
+ * `isBlockedLocal` (optional) receives each clump's LOCAL position; the caller supplies a
+ * world-space road/water check so the canopy never drops a tree onto a highway.
+ */
+function scatterCanopy(g: THREE.Group, isBlockedLocal?: (x: number, z: number) => boolean) {
+  for (let i = 0; i < 60; i++) {
+    const t = i / 60;
+    const theta = Math.PI * (140 / 180 + t * (260 / 180)); // 140° → 400° (= 40°); skips the +Z wedge
+    const r = 22 + (i % 7) * 5 + (i % 3) * 3;               // 22 → 58 deterministic depth spread
+    const x = Math.cos(theta) * r;
+    const z = Math.sin(theta) * r;
+    if (isBlockedLocal && isBlockedLocal(x, z)) continue;
+    const s = 1 + (i % 5) * 0.16;
+
+    const clump = new THREE.Group();
+    clump.position.set(x, 0, z);
+    clump.rotation.y = theta;
+
+    const trunk = new THREE.Mesh(TRUNK_GEO, TRUNK);
+    trunk.position.y = 2;
+    trunk.castShadow = true;
+    clump.add(trunk);
+
+    const canopy1 = new THREE.Mesh(new THREE.ConeGeometry(2.7 * s, 6.2 * s, 6), LEAF);
+    canopy1.position.y = 3.6 + 3.1 * s;
+    canopy1.castShadow = true;
+    clump.add(canopy1);
+
+    if (i % 3 === 0) {
+      const canopy2 = new THREE.Mesh(new THREE.ConeGeometry(1.9 * s, 4.4 * s, 6), LEAF);
+      canopy2.position.y = 3.6 + 6.0 * s;
+      canopy2.castShadow = true;
+      clump.add(canopy2);
+    }
+
+    g.add(clump);
+  }
+}
+
+/** Gir safari gate — stone pillars + beam + boom pole + ranger hut, backed by a wall of forest. */
+export function build(isBlockedLocal?: (x: number, z: number) => boolean): THREE.Group {
+  const g = new THREE.Group();
+
+  // --- two stone gate pillars, one either side of the road ---
+  for (const sx of [-6, 6]) {
+    const pillar = new THREE.Mesh(new THREE.BoxGeometry(1.8, 5, 1.8), GATE_STONE);
+    pillar.position.set(sx, 2.5, 0);
+    pillar.castShadow = true;
+    pillar.receiveShadow = true;
+    g.add(pillar);
+
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 2.4), GATE_STONE);
+    cap.position.set(sx, 5.3, 0);
+    cap.castShadow = true;
+    g.add(cap);
+  }
+
+  // --- horizontal beam across the top + a plain plaque box (no text; the real signboard
+  //     is added separately by EnvironmentBuilder) ---
+  const beam = new THREE.Mesh(new THREE.BoxGeometry(14.5, 0.7, 1.0), TIMBER);
+  beam.position.set(0, 5.4, 0);
+  beam.castShadow = true;
+  g.add(beam);
+
+  const plaque = new THREE.Mesh(new THREE.BoxGeometry(6.5, 2.1, 0.3), PLAQUE);
+  plaque.position.set(0, 6.7, 0);
+  plaque.castShadow = true;
+  g.add(plaque);
+
+  // --- boom pole: pivots by the right pillar, angled up ~30° so it reads as "gate open" ---
+  const boom = new THREE.Group();
+  boom.position.set(6, 1.6, 1.6);
+  boom.rotation.z = -Math.PI / 6;
+  const pole = new THREE.Mesh(new THREE.BoxGeometry(9, 0.35, 0.35), TIMBER);
+  pole.position.x = -4.5;
+  pole.castShadow = true;
+  boom.add(pole);
+  const counterweight = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), GATE_STONE);
+  counterweight.position.x = 0.9;
+  counterweight.castShadow = true;
+  boom.add(counterweight);
+  g.add(boom);
+
+  // --- ranger hut to one side ---
+  const hut = new THREE.Group();
+  hut.position.set(-14, 0, 3);
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(5, 3.6, 4.5), HUT_WALL);
+  walls.position.y = 1.8;
+  walls.castShadow = true;
+  walls.receiveShadow = true;
+  hut.add(walls);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.3, 2.8, 4), TIMBER);
+  roof.rotation.y = Math.PI / 4;
+  roof.position.y = 5.0;
+  roof.castShadow = true;
+  hut.add(roof);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.3, 0.2), TIMBER);
+  door.position.set(0, 1.15, 2.25);
+  hut.add(door);
+  g.add(hut);
+
+  // --- dense forest canopy filling the space behind the gate ---
+  scatterCanopy(g, isBlockedLocal);
+
+  return g;
+}

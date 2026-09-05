@@ -1,7 +1,7 @@
 import { GameProgress, PassportStampRecord } from '../types';
 
 export const SAVE_KEY = 'chhakaro-gujarat-save-v1';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const DEFAULT_PROGRESS: GameProgress = {
   coins: 1200,
@@ -24,6 +24,8 @@ export const DEFAULT_PROGRESS: GameProgress = {
   lastLocationId: 'rajkot',
   stampMeta: {},
   kakaMuted: false,
+  transmissionMode: 'auto',
+  expertMode: false,
 };
 
 interface StoredSave {
@@ -54,7 +56,17 @@ export function loadProgress(): GameProgress {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return { ...DEFAULT_PROGRESS };
     const parsed = JSON.parse(raw) as unknown;
-    if (!isPlainObject(parsed) || parsed.version !== SCHEMA_VERSION || !isPlainObject(parsed.progress)) {
+    // loadProgress is a total field-by-field validator that back-fills every field from
+    // DEFAULT_PROGRESS, so any save from v3 onward is forward-compatible and loses nothing
+    // (transmissionMode / expertMode already have their own safe-default validation below).
+    // Only a genuinely older (< 3), newer (> SCHEMA_VERSION), or absent version resets.
+    if (
+      !isPlainObject(parsed) ||
+      typeof parsed.version !== 'number' ||
+      parsed.version < 3 ||
+      parsed.version > SCHEMA_VERSION ||
+      !isPlainObject(parsed.progress)
+    ) {
       return { ...DEFAULT_PROGRESS };
     }
     // Validate every field against its default. A partial or type-mangled save must never
@@ -83,6 +95,8 @@ export function loadProgress(): GameProgress {
       lastLocationId: typeof p.lastLocationId === 'string' ? p.lastLocationId : DEFAULT_PROGRESS.lastLocationId,
       stampMeta: sanitizeStampMeta(p.stampMeta),
       kakaMuted: typeof p.kakaMuted === 'boolean' ? p.kakaMuted : DEFAULT_PROGRESS.kakaMuted,
+      transmissionMode: p.transmissionMode === 'manual' ? 'manual' : DEFAULT_PROGRESS.transmissionMode,
+      expertMode: typeof p.expertMode === 'boolean' ? p.expertMode : DEFAULT_PROGRESS.expertMode,
     };
   } catch {
     return { ...DEFAULT_PROGRESS };

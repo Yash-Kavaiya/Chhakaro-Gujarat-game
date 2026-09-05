@@ -1,6 +1,7 @@
 import React from 'react';
 import { Compass, Zap } from 'lucide-react';
 import { LocationData } from '../types';
+import type { TransmissionMode } from '../types';
 
 interface SpeedometerGaugeProps {
   speed: number;
@@ -8,6 +9,8 @@ interface SpeedometerGaugeProps {
   totalKm: number;
   currentLocation: LocationData;
   isHeadlightOn?: boolean;
+  gear: string;
+  transmissionMode: TransmissionMode;
 }
 
 export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
@@ -16,6 +19,8 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
   totalKm,
   currentLocation,
   isHeadlightOn = true,
+  gear,
+  transmissionMode,
 }) => {
   const currentSpeed = Math.abs(speed);
   const maxSpeed = 80;
@@ -36,14 +41,6 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
   // 270 degrees sweep = 0.75 of circle
   const arcLength = circumference * 0.75;
   const strokeDashoffset = arcLength - (arcLength * rpmPercentage);
-
-  // Determine current gear
-  let gear = 'N';
-  if (speed > 45) gear = '3';
-  else if (speed > 20) gear = '2';
-  else if (speed > 2) gear = '1';
-  else if (speed < -0.5) gear = 'R';
-  else gear = rpm > 900 ? '1' : 'N';
 
   const isWildlifeLimited = currentLocation.id === 'gir' && currentSpeed >= 24;
 
@@ -182,6 +179,14 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
           {/* Gear Indicator Badge */}
           <div className="px-2 py-0.5 rounded-lg bg-amber-500/20 border border-amber-500/60 text-amber-300 text-[10px] sm:text-xs font-black font-mono shadow-sm">
             GEAR <span className="text-white text-xs">{gear}</span>
+          </div>
+
+          {/* Transmission Mode Badge (A = automatic, M = manual) */}
+          <div
+            className="px-1.5 py-0.5 rounded-md bg-slate-800/80 border border-slate-600 text-slate-200 text-[10px] sm:text-xs font-black font-mono shadow-sm"
+            title={transmissionMode === 'manual' ? 'મેન્યુઅલ ગિયરબોક્સ' : 'ઓટોમેટિક ગિયરબોક્સ'}
+          >
+            {transmissionMode === 'manual' ? 'M' : 'A'}
           </div>
         </div>
 

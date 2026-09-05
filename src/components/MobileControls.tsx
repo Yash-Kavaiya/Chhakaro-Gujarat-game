@@ -1,15 +1,19 @@
 import React from 'react';
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Volume2, Eye } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Volume2, Eye, ChevronUp, ChevronDown } from 'lucide-react';
 import { VehicleControls } from '../types';
 
 interface MobileControlsProps {
   onControlChange: (key: keyof VehicleControls, state: boolean) => void;
   onChangeCamera: () => void;
+  expertMode?: boolean;
+  onShift?: (dir: 'up' | 'down') => void;
 }
 
 export const MobileControls: React.FC<MobileControlsProps> = ({
   onControlChange,
   onChangeCamera,
+  expertMode = false,
+  onShift,
 }) => {
   return (
     <div className="absolute inset-x-0 bottom-24 p-3 flex justify-between items-end pointer-events-none sm:hidden select-none z-20">
@@ -60,8 +64,28 @@ export const MobileControls: React.FC<MobileControlsProps> = ({
         </button>
       </div>
 
-      {/* Accelerator & Brake Pedals */}
-      <div className="flex gap-2 pointer-events-auto">
+      {/* Accelerator & Brake Pedals (+ manual shift buttons in Expert mode) */}
+      <div className="flex gap-2 pointer-events-auto items-end">
+        {expertMode && (
+          <div className="flex flex-col gap-2">
+            <button
+              id="mobile-shift-up-btn"
+              onClick={() => onShift?.('up')}
+              className="w-12 h-12 rounded-2xl bg-slate-900/80 border-2 border-amber-500/80 active:bg-amber-500 active:text-slate-950 text-amber-400 flex flex-col items-center justify-center shadow-2xl backdrop-blur-md font-black"
+            >
+              <ChevronUp className="w-5 h-5" />
+              <span className="text-[8px]">ગિયર</span>
+            </button>
+            <button
+              id="mobile-shift-down-btn"
+              onClick={() => onShift?.('down')}
+              className="w-12 h-12 rounded-2xl bg-slate-900/80 border-2 border-amber-500/80 active:bg-amber-500 active:text-slate-950 text-amber-400 flex flex-col items-center justify-center shadow-2xl backdrop-blur-md font-black"
+            >
+              <ChevronDown className="w-5 h-5" />
+              <span className="text-[8px]">ગિયર</span>
+            </button>
+          </div>
+        )}
         <button
           id="mobile-brake-btn"
           onTouchStart={() => onControlChange('backward', true)}

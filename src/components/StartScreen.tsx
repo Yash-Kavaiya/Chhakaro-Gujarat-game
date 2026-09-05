@@ -8,6 +8,8 @@ interface StartScreenProps {
   hasSave: boolean;
   lastLocationName: string | null;
   onResume: () => void;
+  expertMode: boolean;
+  onToggleExpertMode: () => void;
 }
 
 export const StartScreen: React.FC<StartScreenProps> = ({
@@ -15,6 +17,8 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   hasSave,
   lastLocationName,
   onResume,
+  expertMode,
+  onToggleExpertMode,
 }) => {
   const [selectedStart, setSelectedStart] = useState<LocationData>(GUJARAT_LOCATIONS[0]);
 
@@ -112,6 +116,41 @@ export const StartScreen: React.FC<StartScreenProps> = ({
             <div className="text-[10px] text-slate-400">AI ઓડિયો ગાઈડ</div>
           </div>
         </div>
+
+        {/* Expert Mode opt-in — manual gearbox + engine start/stop (damage lands in a later task) */}
+        <button
+          id="expert-mode-toggle"
+          type="button"
+          role="switch"
+          aria-checked={expertMode}
+          onClick={onToggleExpertMode}
+          className={`w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border-2 transition-all text-left ${
+            expertMode
+              ? 'border-amber-400 bg-amber-950/40 ring-2 ring-amber-400/30'
+              : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🔧</span>
+            <div>
+              <div className="font-black text-sm text-amber-300">નિષ્ણાત મોડ (Expert driving)</div>
+              <div className="text-[11px] text-slate-400">
+                {expertMode ? 'મેન્યુઅલ ગિયર + ડેમેજ ચાલુ' : 'ઓટોમેટિક — સૌ માટે સરળ'}
+              </div>
+            </div>
+          </div>
+          <div
+            className={`w-11 h-6 rounded-full p-0.5 transition-colors shrink-0 ${
+              expertMode ? 'bg-amber-400' : 'bg-slate-700'
+            }`}
+          >
+            <div
+              className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                expertMode ? 'translate-x-5' : ''
+              }`}
+            />
+          </div>
+        </button>
 
         {/* Start Engine Ignition Button */}
         <button

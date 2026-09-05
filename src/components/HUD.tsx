@@ -30,7 +30,7 @@ import {
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter } from '../types';
+import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GameWorld } from '../world/GameWorld';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
@@ -41,6 +41,8 @@ import { KakaStrip } from './KakaStrip';
 interface HUDProps {
   speed: number;
   rpm: number;
+  gear: string;
+  transmissionMode: TransmissionMode;
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
   visitedLocations: string[];
@@ -68,6 +70,7 @@ interface HUDProps {
   onChangeWeather: () => void;
   onToggleFreezeDay?: () => void;
   onSetTimeFreezeMode?: (mode: TimeFreezeMode) => void;
+  onRest?: () => void;
   onOpenMap: () => void;
   onOpenPassport: () => void;
   onOpenFood: () => void;
@@ -86,11 +89,17 @@ interface HUDProps {
   onRefuel?: () => void;
   onRepair?: () => void;
   onInteractEncounter?: (encounter: RoadsideEncounter) => void;
+  expertMode?: boolean;
+  onShiftUp?: () => void;
+  onShiftDown?: () => void;
+  onToggleEngine?: () => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
   speed,
   rpm,
+  gear,
+  transmissionMode,
   currentLocation,
   nearbyLandmark,
   visitedLocations,
@@ -117,6 +126,7 @@ export const HUD: React.FC<HUDProps> = ({
   onChangeWeather,
   onToggleFreezeDay,
   onSetTimeFreezeMode,
+  onRest,
   onOpenMap,
   onOpenPassport,
   onOpenFood,
@@ -135,6 +145,10 @@ export const HUD: React.FC<HUDProps> = ({
   onRefuel,
   onRepair,
   onInteractEncounter,
+  expertMode,
+  onShiftUp,
+  onShiftDown,
+  onToggleEngine,
 }) => {
   const [isTimeMenuOpen, setIsTimeMenuOpen] = useState(false);
   const timeMenuRef = useRef<HTMLDivElement>(null);
@@ -372,6 +386,24 @@ export const HUD: React.FC<HUDProps> = ({
                     </div>
                     {timeOfDay.freezeMode === 'night' && isAnyTimeFrozen && <Check className="w-4 h-4 stroke-[3]" />}
                   </button>
+
+                  {/* Rest till morning — only offered once it's actually getting dark */}
+                  {onRest && (timeOfDay.phase === 'sunset' || timeOfDay.phase === 'dusk' || timeOfDay.phase === 'night') && (
+                    <button
+                      id="time-opt-rest"
+                      onClick={() => {
+                        onRest();
+                        setIsTimeMenuOpen(false);
+                      }}
+                      className="flex items-center gap-2 p-2 rounded-xl transition-all mt-1 border-t border-slate-800 pt-2.5 hover:bg-sky-500/20 text-sky-200"
+                    >
+                      <span className="text-lg">🛌</span>
+                      <div className="text-left">
+                        <div className="font-bold">વિશ્રામ કરો (Rest till morning)</div>
+                        <div className="text-[10px] text-slate-400">રાત વિતાવીને સીધા સવારે ૦૬:૦૦ વાગ્યે</div>
+                      </div>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -421,11 +453,46 @@ export const HUD: React.FC<HUDProps> = ({
             <SpeedometerGauge
               speed={speed}
               rpm={rpm}
+              gear={gear}
+              transmissionMode={transmissionMode}
               totalKm={totalKm}
               currentLocation={currentLocation}
               isHeadlightOn={isHeadlightOn}
             />
           </div>
+
+          {/* Expert-mode manual shift + engine start/stop controls */}
+          {expertMode && (
+            <div className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-amber-500/40 shadow-lg">
+              <button
+                id="hud-shift-down-btn"
+                onClick={onShiftDown}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-300 text-xs font-black transition-all active:scale-95"
+                title="ગિયર ડાઉન (Q key)"
+              >
+                <span>▼</span>
+                <span>ગિયર</span>
+              </button>
+              <button
+                id="hud-shift-up-btn"
+                onClick={onShiftUp}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-amber-300 text-xs font-black transition-all active:scale-95"
+                title="ગિયર અપ (E key)"
+              >
+                <span>▲</span>
+                <span>ગિયર</span>
+              </button>
+              <button
+                id="hud-engine-btn"
+                onClick={onToggleEngine}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-emerald-300 text-xs font-black transition-all active:scale-95"
+                title="એન્જિન ચાલુ / બંધ (I key)"
+              >
+                <span>🔑</span>
+                <span>ચાલુ/બંધ</span>
+              </button>
+            </div>
+          )}
 
           {/* Top Control Action Buttons */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 shadow-lg">
@@ -602,7 +669,14 @@ export const HUD: React.FC<HUDProps> = ({
               <span className="font-black text-amber-200 truncate">{nearbyLandmark.nameGujarati}</span>
               <span className="text-slate-400 shrink-0">—</span>
               <span className="text-slate-300 shrink-0">
-                <span className="font-bold text-amber-300">E</span> દબાવો · {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
+                {/* Expert mode rebinds E to shift-up, so only show the key hint outside Expert.
+                    The whole pill is still tappable/clickable either way. */}
+                {!expertMode && (
+                  <>
+                    <span className="font-bold text-amber-300">E</span> દબાવો ·{' '}
+                  </>
+                )}
+                {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
               </span>
             </button>
           );
