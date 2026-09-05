@@ -40,10 +40,12 @@ export function build(): THREE.Group {
   const g = new THREE.Group();
 
   // --- the star: one huge near-white salt disc, laid flat just above the zone terrain ---
-  //     y = 0.05 clears the opaque terrain plane at y = -0.05 so it actually renders.
+  //     y = 0.028 clears the opaque terrain plane (y = -0.05) yet stays BELOW every road
+  //     layer (0.032+), so the junction roundabout and highways always render on top of
+  //     the salt — the rann is the ground, never a coat of paint over the road.
   const salt = new THREE.Mesh(new THREE.CircleGeometry(140, 48), SALT);
   salt.rotation.x = -Math.PI / 2;
-  salt.position.y = 0.05;
+  salt.position.y = 0.028;
   salt.receiveShadow = true;
   g.add(salt);
 

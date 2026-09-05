@@ -1,4 +1,15 @@
 import { RoadsideEncounter } from '../types';
+import { PlacementHelper } from '../world/PlacementHelper';
+
+/**
+ * Stall positions are anchored to the real highway corridors (deterministic, road/water-safe
+ * placement from PlacementHelper) so every food stop sits on the shoulder of the route it
+ * belongs to — never on asphalt, never in water.
+ */
+function spot(corridorId: string, t: number, side: 1 | -1): { x: number; z: number } {
+  const s = PlacementHelper.placeAlongCorridor(corridorId, t, side, 4, 3, 10);
+  return { x: Math.round(s.x * 10) / 10, z: Math.round(s.z * 10) / 10 };
+}
 
 export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
   {
@@ -12,7 +23,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Highway Kadak Masala Chai',
     emoji: '🫖',
     kakaDialogue: 'અરે વાહ ભાઈ વાહ! હાઇવે માથે ગરમાગરમ કડક મસાલા ચા મળી ગઈ! એક કટોરી પીવો એટલે થાક ગાયબ!',
-    worldPosition: { x: 120, z: -40 },
+    worldPosition: spot('nh47_rajkot_ahmedabad', 0.22, 1),
   },
   {
     id: 'enc_rajkot_ganthiya',
@@ -25,7 +36,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Rajkot Ganthiya',
     emoji: '🥨',
     kakaDialogue: 'ગરમાગરમ વણેલા ગાંઠિયા, તળેલી મરચી અને પપૈયાનો સંભારો! આ તો કાઠિયાવાડનું અમૃત કહેવાય બાપા!',
-    worldPosition: { x: -60, z: -80 },
+    worldPosition: spot('nh27_rajkot_dwarka', 0.3, -1),
   },
   {
     id: 'enc_bhavnagar_ganthiya',
@@ -38,7 +49,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Bhavnagari Spicy Ganthiya',
     emoji: '🥨',
     kakaDialogue: 'ભાવનગરના તીખા કાળા મરીવાળા ગાંઠિયા અને રસદાર જલેબી! સ્વાદ દાઢે વળગી જાય એવો છે!',
-    worldPosition: { x: 80, z: 220 },
+    worldPosition: spot('nh51b_rajkot_palitana', 0.62, 1),
   },
   {
     id: 'enc_ahmedabad_gotas',
@@ -51,7 +62,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Highway Methi Na Gota',
     emoji: '🧆',
     kakaDialogue: 'વરસાદી હવામાનમાં ગરમાગરમ મેથીના ગોટા અને કઢીનો સ્વાદ એટલે સ્વર્ગની મોજ!',
-    worldPosition: { x: -240, z: 60 },
+    worldPosition: spot('ne1_ahmedabad_vadodara', 0.35, -1),
   },
   {
     id: 'enc_rth_tea',
@@ -64,7 +75,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Highway Kadak Masala Chai',
     emoji: '🫖',
     kakaDialogue: 'શ્વેત રણના રોડ ટુ હેવન વચ્ચે ગરમ ચા પીવાની મોજ જ અલગ છે! જય ગરવી ગુજરાત!',
-    worldPosition: { x: -180, z: -450 },
+    worldPosition: spot('rth_kutch_dholavira', 0.5, 1),
   },
   {
     id: 'enc_narmada_tea',
@@ -77,7 +88,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Highway Kadak Masala Chai',
     emoji: '☕',
     kakaDialogue: 'નર્મદા નદીના કાંઠે આદુવાળી કડક ચાની ચુસકી લેતા લેતા છકડો હાંકવાની અલગ જ મજા છે!',
-    worldPosition: { x: -160, z: 280 },
+    worldPosition: spot('nh56_vadodara_sou', 0.5, -1),
   },
   {
     id: 'enc_surat_locho',
@@ -90,7 +101,7 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Surti Locho',
     emoji: '🍲',
     kakaDialogue: 'સુરતનું જમણ અને કાશીનું મરણ! ગરમાગરમ બટર લોચો માથે લીલી ચટણી એટલે લિજ્જત આવી જાય!',
-    worldPosition: { x: -200, z: 420 },
+    worldPosition: spot('nh48_ahmedabad_surat', 0.55, 1),
   },
   {
     id: 'enc_dwarka_penda',
@@ -103,6 +114,6 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Dwarka Penda',
     emoji: '🍮',
     kakaDialogue: 'જય દ્વારકાધીશ! ભગવાનનો પ્રસાદી માવા પેંડો આરોગીને આગળની યાત્રા શરૂ કરો બાપા!',
-    worldPosition: { x: 410, z: 80 },
+    worldPosition: spot('nh51_dwarka_somnath', 0.45, -1),
   },
 ];

@@ -8,6 +8,7 @@ import { IncidentDirector } from './IncidentDirector';
 import { IncidentSpawn } from '../state/incidents';
 import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
 import { GUJARAT_LOCATIONS } from '../data/locations';
+import { PETROL_PUMPS, AUTO_GARAGES, TOLL_PLAZA } from '../data/roadsidePlacements';
 import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
 import { soundManager } from '../audio/SoundManager';
 import { pickWeather, weatherParams, WeatherParams } from '../state/weatherDirector';
@@ -206,6 +207,11 @@ export class GameWorld {
     // 6. Build full Gujarat environment
     this.environmentBuilder = new EnvironmentBuilder(this.scene);
     this.environmentBuilder.buildFullWorld(GUJARAT_LOCATIONS);
+
+    // Console/QA hook: world instance handle for debugging and tooling.
+    if (typeof window !== 'undefined') {
+      (window as unknown as { __CHHAKARO__?: GameWorld }).__CHHAKARO__ = this;
+    }
 
     // 7. Spawn Animated Gujarati Pedestrian NPCs
     this.npcSystem = new NPCSystem(this.scene);
@@ -713,13 +719,11 @@ export class GameWorld {
   }
 
   private checkFacilityProximity() {
+    // Single source of truth with EnvironmentBuilder's 3D props (roadsidePlacements.ts)
     const facilities: { type: 'petrol' | 'garage' | 'toll'; name: string; x: number; z: number }[] = [
-      { type: 'petrol', name: '⛽ શ્રી ગણેશ પેટ્રોલિયમ (HP)', x: 220, z: 80 },
-      { type: 'petrol', name: '⛽ ખોડિયાર પેટ્રોલિયમ (IndianOil)', x: -120, z: -160 },
-      { type: 'petrol', name: '⛽ ગીર હાઇવે પેટ્રોલિયમ', x: 100, z: 460 },
-      { type: 'garage', name: '🔧 રણછોડ ઓટો ગેરેજ & પંચર', x: 180, z: 50 },
-      { type: 'garage', name: '🔧 બાલાજી છકડો સર્વિસ સેન્ટર', x: -80, z: 200 },
-      { type: 'toll', name: '🛣️ રાષ્ટ્રીય ધોરીમાર્ગ ટોલ પ્લાઝા', x: 300, z: 100 },
+      ...PETROL_PUMPS.map((f) => ({ type: 'petrol' as const, name: f.name, x: f.spot.x, z: f.spot.z })),
+      ...AUTO_GARAGES.map((g) => ({ type: 'garage' as const, name: g.name, x: g.spot.x, z: g.spot.z })),
+      { type: 'toll' as const, name: TOLL_PLAZA.name, x: TOLL_PLAZA.spot.x, z: TOLL_PLAZA.spot.z },
     ];
 
     let nearest: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null = null;

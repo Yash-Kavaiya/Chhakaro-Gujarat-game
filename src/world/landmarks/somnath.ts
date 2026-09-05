@@ -75,19 +75,22 @@ export function build(): THREE.Group {
     g.add(roof);
   });
 
-  // --- shore wall: a low long wall between the plinth and the sea ---
+  // --- shore wall: a low long wall between the plinth and the sea. Net +35 from the zone
+  //     junction (group is placed at z=-62 by EnvironmentBuilder) so it never touches the
+  //     roundabout, and the sea starts right behind it. ---
   const shoreWall = new THREE.Mesh(new THREE.BoxGeometry(64, 1.8, 2.2), STONE_DARK);
-  shoreWall.position.set(0, 0.9, 26);
+  shoreWall.position.set(0, 0.9, 97);
   shoreWall.castShadow = true;
   shoreWall.receiveShadow = true;
   g.add(shoreWall);
 
-  // --- sea: a large thin semi-transparent plane extending toward +Z (the road side).
-  //     y = 0.08 sits just above the zone terrain plane (y = -0.05) so it actually renders —
-  //     matches the codebase water convention (salt flat y = 0.05, old Somnath sea y = 0.1). ---
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(200, 120), SEA);
+  // --- sea: a large thin semi-transparent plane extending toward +Z (away from every
+  //     corridor — all three roads out of Somnath head north). Net center +85 from the
+  //     junction (registered in waterBodies.ts), y = 0.08 above terrain but far from any
+  //     road layer, so water and asphalt never overlap. ---
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(200, 100), SEA);
   sea.rotation.x = -Math.PI / 2;
-  sea.position.set(0, 0.08, 86);
+  sea.position.set(0, 0.08, 148);
   sea.receiveShadow = true;
   g.add(sea);
 

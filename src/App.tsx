@@ -49,7 +49,6 @@ import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
 import { evaluateKakaTriggers } from './state/kakaTriggers';
 import { useKakaCompanion } from './state/useKakaCompanion';
 import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
-import { radioAudioEngine } from './audio/RadioAudioEngine';
 
 // Gujarati warning banners for procedural road incidents (see world/IncidentDirector).
 const INCIDENT_TEXT: Record<string, string> = {
@@ -96,8 +95,7 @@ export default function App() {
   const [isMuted, setIsMuted] = useState(false);
   const [totalKm, setTotalKm] = useState(initial.totalKm);
 
-  // Economy & Progression
-  const [coins, setCoins] = useState(initial.coins);
+  // Progression
   const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
@@ -444,6 +442,13 @@ export default function App() {
       checkMissionCompletion(loc.id);
     };
 
+    // Deep-link spawn: /?zone=ahmedabad starts the trip at that landmark (QA + shareable links)
+    const zoneParam = new URLSearchParams(window.location.search).get('zone');
+    if (zoneParam) {
+      const target = GUJARAT_LOCATIONS.find((l) => l.id === zoneParam);
+      if (target) world.teleportToLocation(target);
+    }
+
     // Keyboard Shortcuts
     const handleGlobalKeys = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -552,7 +557,6 @@ export default function App() {
   // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
   useEffect(() => {
     saveProgress({
-      coins,
       reputationStars,
       visitedLocations,
       discoveredFoods,
@@ -569,7 +573,6 @@ export default function App() {
       expertMode,
     });
   }, [
-    coins,
     reputationStars,
     visitedLocations,
     discoveredFoods,
@@ -595,13 +598,10 @@ export default function App() {
 
   // The single entry point for "the player is now at locId". Adds to visitedLocations and,
   // on the FIRST visit only, writes the passport stamp (date + odometer) and awards a
-  // one-time reward. Safe to call from the stale world.onLocationChange closure: the guard
+  // Safe to call from the stale world.onLocationChange closure: the guard
   // reads visitedLocationsRef, and the ref is bumped synchronously so a paired callback
   // fire (onLandmarkApproach + onLocationChange for the same arrival) is a no-op.
   // Achievement unlocking stays a reaction to committed progress (see the effect above) —
-  // never a side effect inside a setState updater (StrictMode double-invokes updaters).
-  const FIRST_VISIT_COINS = 100;
-
   const recordVisit = (locId: string) => {
     if (visitedLocationsRef.current.includes(locId)) return;
     const km = worldRef.current ? worldRef.current.totalDistanceDriven / 1000 : totalKm;
@@ -610,9 +610,8 @@ export default function App() {
     setStampMeta((prev) =>
       prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
     );
-    setCoins((c) => c + FIRST_VISIT_COINS);
     pushKakaEvent({ kind: 'stamp', nameGujarati: locName(locId) });
-    notify({ text: `📖 નવો પાસપોર્ટ સ્ટેમ્પ! +₹${FIRST_VISIT_COINS}`, tone: 'reward', speak: false });
+    notify({ text: '📖 નવો પાસપોર્ટ સ્ટેમ્પ!', tone: 'reward', speak: false });
   };
 
   const handleDiscoverFood = (foodId: string) => {
@@ -623,13 +622,11 @@ export default function App() {
     if (encounter.foodId) {
       handleDiscoverFood(encounter.foodId);
     }
-    const coinsReward = encounter.rewardCoins ?? 35;
-    setCoins((prev) => prev + coinsReward);
     setReputationStars((prev) => Math.min(5, prev + 1));
     const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
     pushKakaEvent({ kind: 'food', nameGujarati: foodName });
     notify({
-      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ! (+₹${coinsReward})`,
+      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ!`,
       tone: 'reward',
       speak: false,
     });
@@ -654,12 +651,10 @@ export default function App() {
       activeMissionRef.current = null;
       activePassengerRef.current = null;
 
-      const reward = mission.rewardCoins;
-      setCoins((c) => c + reward);
       setReputationStars((s) => Math.min(5.0, Number((s + 0.1).toFixed(1))));
       setCompletedMissions((m) => [...m, mission.id]);
 
-      const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા! ₹${reward} કમાયા!`;
+      const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા!`;
       pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
@@ -699,49 +694,24 @@ export default function App() {
 
   const handleBuySouvenir = (souvenirId: string) => {
     const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
-    if (!item || collectedSouvenirs.includes(souvenirId) || coins < item.priceCoins) return;
-    // Make the collection add atomic + conditional so a double-click before re-render can't
-    // charge twice or push the id twice. `bought` gates the charge to the one call that
-    // actually appended the souvenir.
-    let bought = false;
-    setCollectedSouvenirs((prev) => {
-      if (prev.includes(souvenirId)) return prev;
-      bought = true;
-      return [...prev, souvenirId];
-    });
-    if (!bought) return;
-    setCoins((c) => c - item.priceCoins);
+    if (!item || collectedSouvenirs.includes(souvenirId)) return;
+    setCollectedSouvenirs((prev) => (prev.includes(souvenirId) ? prev : [...prev, souvenirId]));
     pushKakaEvent({ kind: 'souvenir', nameGujarati: item.nameGujarati });
-    notify({ text: `🛍️ ${item.nameGujarati} ખરીદ્યું!`, tone: 'reward', speak: false });
+    notify({ text: `🛍️ ${item.nameGujarati} સ્મૃતિમાં સાચવ્યું!`, tone: 'reward', speak: false });
   };
 
-  const handleQuizCorrect = (rewardCoins: number) => {
-    setCoins((c) => c + rewardCoins);
+  const handleQuizCorrect = () => {
     setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
     pushKakaEvent({ kind: 'quiz', correct: true });
-    notify({ text: `સાચો જવાબ! +₹${rewardCoins}`, tone: 'reward', speak: false });
-  };
-
-  const handleRefuel = () => {
-    if (coins >= 500) {
-      setCoins((c) => c - 500);
-      if (worldRef.current) {
-        worldRef.current.refuel(10);
-      }
-      pushKakaEvent({ kind: 'refuel' });
-      notify({ text: '⛽ ₹૫૦૦ નું ડીઝલ પુરાઈ ગયું!', tone: 'reward', speak: false });
-    }
+    notify({ text: 'સાચો જવાબ! શાબાશ!', tone: 'reward', speak: false });
   };
 
   const handleRepair = () => {
-    if (coins >= 200) {
-      setCoins((c) => c - 200);
-      if (worldRef.current) {
-        worldRef.current.repairPunctureAndCool();
-      }
-      pushKakaEvent({ kind: 'repair' });
-      notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
+    if (worldRef.current) {
+      worldRef.current.repairPunctureAndCool();
     }
+    pushKakaEvent({ kind: 'repair' });
+    notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
   };
 
   const handleStartGame = (startLoc: LocationData, isResume = false) => {
@@ -760,7 +730,7 @@ export default function App() {
   const initialLocation =
     GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0];
   const hasSave =
-    initial.visitedLocations.length > 1 || initial.totalKm > 0 || initial.coins !== 1200;
+    initial.visitedLocations.length > 1 || initial.totalKm > 0;
   const handleResume = () => handleStartGame(initialLocation, true);
 
   const handleToggleMute = () => {
@@ -920,7 +890,6 @@ export default function App() {
         else if (intent.target === 'garage') setIsGarageOpen(true);
         break;
       case 'toggle':
-        if (intent.target === 'music') radioAudioEngine.togglePower();
         else if (intent.target === 'headlight') handleToggleHeadlight();
         else if (intent.target === 'mute') handleToggleMute();
         break;
@@ -1063,20 +1032,18 @@ export default function App() {
             <span className="text-3xl shrink-0">🛣️</span>
             <div className="min-w-0">
               <h4 className="font-black text-amber-300 text-sm truncate">{nearbyToll.name}</h4>
-              <p className="text-xs text-slate-300">ટોલ ટેક્સ ₹૩૦ — ભરો એટલે બૂમ ગેટ ખૂલશે</p>
+              <p className="text-xs text-slate-300">FASTag લેન — ગેટ ખૂલશે, આગળ વધો</p>
             </div>
           </div>
           <button
-            disabled={coins < 30}
             onClick={() => {
               worldRef.current?.payToll();
-              setCoins((c) => c - 30);
               setNearbyToll(null);
-              notify({ text: '🧾 ટોલ ₹૩૦ ભરાયો — રસીદ મળી. સફર ચાલુ!', tone: 'info' });
+              notify({ text: '🧾 FASTag ટોલ પાસ — સફર ચાલુ!', tone: 'info' });
             }}
-            className="py-2 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-500 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg shrink-0"
+            className="py-2 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg shrink-0"
           >
-            {coins < 30 ? 'પૂરતા સિક્કા નથી' : '₹૩૦ ટોલ ભરો'}
+            આગળ વધો
           </button>
         </div>
       )}
@@ -1105,7 +1072,6 @@ export default function App() {
             healthState={vehicleHealth}
             activePassenger={activePassenger}
             activeMission={activeMission}
-            coins={coins}
             reputationStars={reputationStars}
             isMuted={isMuted}
             totalKm={totalKm}
@@ -1132,7 +1098,6 @@ export default function App() {
             onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
             onInspectLandmark={(loc) => setInspectingLandmark(loc)}
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
-            onRefuel={handleRefuel}
             onRepair={handleRepair}
             onInteractEncounter={(enc) => setActiveEncounterModal(enc)}
             expertMode={expertMode}
@@ -1185,7 +1150,6 @@ export default function App() {
         availableMissions={GUJARAT_MISSIONS}
         activeMission={activeMission}
         activePassenger={activePassenger}
-        coins={coins}
         reputationStars={reputationStars}
         completedMissions={completedMissions}
         onAcceptMission={handleAcceptMission}
@@ -1196,7 +1160,6 @@ export default function App() {
         isOpen={isSouvenirsOpen}
         onClose={() => setIsSouvenirsOpen(false)}
         souvenirs={currentLocationSouvenirs}
-        coins={coins}
         onBuySouvenir={handleBuySouvenir}
       />
 

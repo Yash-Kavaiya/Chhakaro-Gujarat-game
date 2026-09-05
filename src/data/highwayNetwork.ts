@@ -119,6 +119,17 @@ export const GUJARAT_HIGHWAY_CORRIDORS: HighwayCorridor[] = [
 
   // South & Central Gujarat Highways
   {
+    id: 'nh47_ahmedabad_gandhinagar',
+    code: 'NH-47G',
+    fromId: 'ahmedabad',
+    toId: 'gandhinagar',
+    nameGujarati: 'અમદાવાદ-ગાંધીનગર સેક્ટર લિંક',
+    nameEnglish: 'Ahmedabad - Gandhinagar Sector Link',
+    speedLimit: 60,
+    type: 'national',
+    hasSignalGantry: true,
+  },
+  {
     id: 'nh48_ahmedabad_surat',
     code: 'NH-48',
     fromId: 'ahmedabad',

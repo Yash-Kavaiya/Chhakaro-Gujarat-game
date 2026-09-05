@@ -18,14 +18,18 @@ const TRUNK_GEO = new THREE.CylinderGeometry(0.35, 0.5, 4, 6);
  * ~260° arc from +140° through −Z round to +40°, so it wraps both ±X flanks and the −Z rear while
  * leaving a ~100° gap open toward +Z (the road / clearing). Radius stays ≥ 22 so the gate apron is
  * clear. No Math.random — identical every run.
+ *
+ * `isBlockedLocal` (optional) receives each clump's LOCAL position; the caller supplies a
+ * world-space road/water check so the canopy never drops a tree onto a highway.
  */
-function scatterCanopy(g: THREE.Group) {
+function scatterCanopy(g: THREE.Group, isBlockedLocal?: (x: number, z: number) => boolean) {
   for (let i = 0; i < 60; i++) {
     const t = i / 60;
     const theta = Math.PI * (140 / 180 + t * (260 / 180)); // 140° → 400° (= 40°); skips the +Z wedge
     const r = 22 + (i % 7) * 5 + (i % 3) * 3;               // 22 → 58 deterministic depth spread
     const x = Math.cos(theta) * r;
     const z = Math.sin(theta) * r;
+    if (isBlockedLocal && isBlockedLocal(x, z)) continue;
     const s = 1 + (i % 5) * 0.16;
 
     const clump = new THREE.Group();
@@ -54,7 +58,7 @@ function scatterCanopy(g: THREE.Group) {
 }
 
 /** Gir safari gate — stone pillars + beam + boom pole + ranger hut, backed by a wall of forest. */
-export function build(): THREE.Group {
+export function build(isBlockedLocal?: (x: number, z: number) => boolean): THREE.Group {
   const g = new THREE.Group();
 
   // --- two stone gate pillars, one either side of the road ---
@@ -116,7 +120,7 @@ export function build(): THREE.Group {
   g.add(hut);
 
   // --- dense forest canopy filling the space behind the gate ---
-  scatterCanopy(g);
+  scatterCanopy(g, isBlockedLocal);
 
   return g;
 }

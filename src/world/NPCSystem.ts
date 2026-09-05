@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LocationData } from '../types';
+import { getResolvedHighwaySegments } from '../data/highwayNetwork';
 
 export type NPCType =
   | 'kathiyawadi_male'
@@ -87,7 +88,7 @@ export class NPCSystem {
     });
 
     // Roadside tea stops & milestones pedestrians
-    this.spawnRoadsideNPCs(locations);
+    this.spawnRoadsideNPCs();
   }
 
   private spawnLocationCluster(loc: LocationData) {
@@ -216,15 +217,19 @@ export class NPCSystem {
     }
   }
 
-  private spawnRoadsideNPCs(locations: LocationData[]) {
-    // Spawn walkers along highway segments between major towns
-    for (let i = 0; i < locations.length; i++) {
-      const p1 = locations[i].worldPosition;
-      const p2 = locations[(i + 1) % locations.length].worldPosition;
-
-      // Midpoint on road shoulder
-      const mx = (p1.x + p2.x) / 2 + 6.0;
-      const mz = (p1.z + p2.z) / 2 + 6.0;
+  private spawnRoadsideNPCs() {
+    // Spawn walkers on the shoulders of REAL highway segments (the old version walked the
+    // location polygon, which strayed off-road and through water after the map spread out)
+    const segments = getResolvedHighwaySegments();
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i];
+      const dx = seg.end.x - seg.start.x;
+      const dz = seg.end.z - seg.start.z;
+      const t = 0.3 + (i % 4) * 0.15;
+      // Perpendicular offset onto the shoulder, alternating sides
+      const side = i % 2 === 0 ? 1 : -1;
+      const mx = seg.start.x + dx * t + (-dz / seg.distance) * 11 * side;
+      const mz = seg.start.z + dz * t + (dx / seg.distance) * 11 * side;
 
       if (i % 2 === 0) {
         this.createNPC('maldhari_shepherd', 'walk', mx, mz, 'હળવે હળવે ચલાવો ભાઈ, રસ્તો સરસ છે!', 16);
