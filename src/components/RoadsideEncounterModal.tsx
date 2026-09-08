@@ -80,8 +80,7 @@ export const RoadsideEncounterModal: React.FC<RoadsideEncounterModalProps> = ({
             </div>
 
             <div className="text-right shrink-0">
-              <span className="text-xs font-bold text-amber-400 block">+₹{rewardCoins}</span>
-              <span className="text-[10px] text-slate-400">+1 ★ Rep</span>
+              <span className="text-xs font-bold text-yellow-300 block">+1 ★ Rep</span>
             </div>
           </div>
         )}

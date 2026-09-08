@@ -153,13 +153,13 @@ function describeKakaEvent(e: any): string {
     case 'food':
       return `${e.nameGujarati} નો સ્વાદ માણ્યો`;
     case 'souvenir':
-      return `${e.nameGujarati} ખરીદ્યું`;
+      return `${e.nameGujarati} સ્મૃતિમાં સાચવ્યું`;
     case 'quiz':
       return e.correct ? 'ક્વિઝનો સાચો જવાબ આપ્યો' : 'ક્વિઝમાં ખોટો જવાબ પડ્યો';
     case 'mission_done':
       return `${e.nameGujarati} નું મુસાફર-મિશન પૂરું કર્યું`;
     case 'refuel':
-      return 'ડીઝલ પુરાવ્યું';
+      return 'હાઇવે વિરામ લીધો';
     case 'repair':
       return 'છકડો રીપેર કરાવ્યો';
     case 'overspeed':
@@ -173,7 +173,7 @@ function describeKakaEvent(e: any): string {
 const KAKA_DUHAS = [
   '"કાઠિયાવાડમાં કોક દી ભૂલો પડ ભગવાન,\nતો તારો કરું સત્કાર — સ્વર્ગ ભુલાવી દઉં શામળા!"\n— અસલ કાઠિયાવાડી મહેમાનગતિનો દુહો.',
   '"જ્યાં જ્યાં વસે એક ગુજરાતી, ત્યાં ત્યાં સદાકાળ ગુજરાત."\n— કવિ અરદેશર ખબરદારની અમર પંક્તિ.',
-  '"પાણી પહેલાં પાળ બાંધવી."\n— જૂની કહેવત: મુસીબત આવે એ પહેલાં તૈયારી કરી લેવી. છકડામાં ડીઝલ પૂરું રાખજો, બાપા!',
+  '"પાણી પહેલાં પાળ બાંધવી."\n— જૂની કહેવત: મુસીબત આવે એ પહેલાં તૈયારી કરી લેવી. તૈયારી પૂરી રાખજો, બાપા!',
 ];
 
 // Light chhakaro humour — no factual claims.

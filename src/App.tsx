@@ -89,6 +89,7 @@ export default function App() {
   const [activeEncounterModal, setActiveEncounterModal] = useState<RoadsideEncounter | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
   const [isHazardOn, setIsHazardOn] = useState(false);
+  const [isEngineOn, setIsEngineOn] = useState(true);
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
   const [weather, setWeather] = useState<WeatherType>('sunny');
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDayState | null>(null);
@@ -96,14 +97,15 @@ export default function App() {
   const [totalKm, setTotalKm] = useState(initial.totalKm);
 
   // Progression
+  const [coins, setCoins] = useState(initial.coins);
   const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
   const [vehicleHealth, setVehicleHealth] = useState<VehicleHealthState>({
-    fuelPercent: 88,
+    fuelPercent: 100,
     maxFuelLiters: 15,
-    currentFuelLiters: 13.2,
-    fuelConsumptionRateKm: 0.045,
+    currentFuelLiters: 15,
+    fuelConsumptionRateKm: 0,
     engineTempCelsius: 82,
     isOverheating: false,
     hasPuncture: false,
@@ -487,7 +489,7 @@ export default function App() {
         // Expert-only: manual engine start/stop (like q/e). In auto mode the engine is
         // managed for the player. GameWorld also refuses to stop the engine above 1 km/h.
         if (!expertModeRef.current) return;
-        worldRef.current?.toggleEngine();
+        handleToggleEngine();
       }
     };
 
@@ -557,6 +559,7 @@ export default function App() {
   // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
   useEffect(() => {
     saveProgress({
+      coins,
       reputationStars,
       visitedLocations,
       discoveredFoods,
@@ -573,6 +576,7 @@ export default function App() {
       expertMode,
     });
   }, [
+    coins,
     reputationStars,
     visitedLocations,
     discoveredFoods,
@@ -657,7 +661,7 @@ export default function App() {
       const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા!`;
       pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
-      notify({ text: `🎉 ${successMsg}`, tone: 'info', speak: true });
+      notify({ text: `🎉 ${successMsg} (+0.1 ★)`, tone: 'info', speak: true });
 
       // Clear passenger from vehicle; the mission-derived nav arrow drops with the mission.
       setActivePassenger(null);
@@ -771,6 +775,7 @@ export default function App() {
     if (!world) return;
     const wasOn = world.isEngineOn;
     const nowOn = world.toggleEngine();
+    setIsEngineOn(nowOn);
     if (wasOn && nowOn) {
       // Engine stayed on: refused to stop while the cart is still rolling.
       notify({
@@ -890,7 +895,7 @@ export default function App() {
         else if (intent.target === 'garage') setIsGarageOpen(true);
         break;
       case 'toggle':
-        else if (intent.target === 'headlight') handleToggleHeadlight();
+        if (intent.target === 'headlight') handleToggleHeadlight();
         else if (intent.target === 'mute') handleToggleMute();
         break;
       case 'photo':
@@ -1063,7 +1068,8 @@ export default function App() {
             navTargetId={effectiveNavTargetId}
             nearbyFacility={nearbyFacility}
             nearbyEncounter={nearbyEncounter}
-            isEngineOn={true}
+            coins={coins}
+            isEngineOn={isEngineOn}
             isHeadlightOn={isHeadlightOn}
             isHazardOn={isHazardOn}
             cameraMode={cameraMode}
@@ -1150,6 +1156,7 @@ export default function App() {
         availableMissions={GUJARAT_MISSIONS}
         activeMission={activeMission}
         activePassenger={activePassenger}
+        coins={coins}
         reputationStars={reputationStars}
         completedMissions={completedMissions}
         onAcceptMission={handleAcceptMission}
@@ -1160,6 +1167,7 @@ export default function App() {
         isOpen={isSouvenirsOpen}
         onClose={() => setIsSouvenirsOpen(false)}
         souvenirs={currentLocationSouvenirs}
+        coins={coins}
         onBuySouvenir={handleBuySouvenir}
       />
 

@@ -7,7 +7,7 @@ interface SouvenirShopModalProps {
   isOpen: boolean;
   onClose: () => void;
   souvenirs: SouvenirItem[];
-  coins: number;
+  coins?: number;
   onBuySouvenir: (souvenirId: string) => void;
 }
 
@@ -15,7 +15,6 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
   isOpen,
   onClose,
   souvenirs = [],
-  coins = 0,
   onBuySouvenir,
 }) => {
   if (!isOpen) return null;
@@ -44,8 +43,6 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
 
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3 px-3.5 py-1.5 rounded-xl bg-black/40 border border-emerald-500/30">
-              <span className="text-sm font-bold text-amber-400">🪙 ₹{coins}</span>
-              <span className="text-slate-600">|</span>
               <span className="text-xs font-bold text-emerald-300">
                 સંગ્રહ: {acquiredCount} / {safeSouvenirs.length}
               </span>
@@ -75,14 +72,10 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
                   <span className="text-4xl p-3 bg-white/5 rounded-2xl border border-white/10">
                     {item.iconEmoji}
                   </span>
-                  {item.acquired ? (
+                  {item.acquired && (
                     <span className="flex items-center space-x-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950">
                       <CheckCircle size={12} />
                       <span>સંગ્રહિત</span>
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      ₹{item.priceCoins}
                     </span>
                   )}
                 </div>
@@ -108,19 +101,14 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
                   </div>
                 ) : (
                   <button
-                    disabled={coins < item.priceCoins}
                     onClick={() => {
                       onBuySouvenir(item.id);
                       soundManager.playChime();
                     }}
-                    className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs transition flex items-center justify-center space-x-2 ${
-                      coins >= item.priceCoins
-                        ? 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 shadow-lg'
-                        : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                    }`}
+                    className="w-full py-2.5 px-4 rounded-xl font-bold text-xs transition flex items-center justify-center space-x-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 shadow-lg active:scale-95"
                   >
                     <ShoppingBag size={14} />
-                    <span>{coins >= item.priceCoins ? 'ખરીદો (Buy Now)' : 'અપૂરતા સિક્કા'}</span>
+                    <span>સંગ્રહ કરો (Collect)</span>
                   </button>
                 )}
               </div>
@@ -131,7 +119,7 @@ export const SouvenirShopModal: React.FC<SouvenirShopModalProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 px-6">
           <span>
-            ગુજરાતની હસ્તકળા ખરીદીને ૧૦૦% કલ્ચરલ પ્રવાસ પૂર્ણ કરો!
+            ગુજરાતની હસ્તકળા સંગ્રહ કરીને ૧૦૦% કલ્ચરલ પ્રવાસ પૂર્ણ કરો!
           </span>
           <button onClick={onClose} className="text-emerald-400 font-bold hover:underline">
             બંધ કરો (Close)

@@ -127,6 +127,6 @@ export const ROADSIDE_ENCOUNTERS: RoadsideEncounter[] = [
     foodNameEnglish: 'Airport Lounge Masala Chai & Bun Maska',
     emoji: '✈️',
     kakaDialogue: 'અરે વાહ ભાઈ વાહ! એરપોર્ટના રસ્તે વિમાન ઊડતાં જોવાની ને ગરમ મસાલા ચા પીવાની કેવી મોજ પડે છે!',
-    worldPosition: { x: -270, z: -40 },
+    worldPosition: spot('gj_airport_express_ahmedabad', 0.5, 1),
   },
 ];

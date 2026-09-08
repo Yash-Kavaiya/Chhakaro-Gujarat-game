@@ -181,35 +181,6 @@ export interface VehicleControls {
 
 export type CameraMode = 'chase' | 'hood' | 'passenger' | 'cinematic' | 'drone';
 
-export type RadioGenre = 'folk' | 'garba' | 'news' | 'dayro' | 'bhakti';
-
-export interface RadioTrack {
-  id: string;
-  titleGujarati: string;
-  titleEnglish: string;
-  artistGujarati: string;
-  artistEnglish: string;
-  durationSec: number;
-  lyricsSnippet?: string;
-  genre: RadioGenre;
-  tempoBpm: number;
-  scaleType: 'bilawal' | 'khamaj' | 'bhairav' | 'kalyan' | 'kafi';
-  newsBulletins?: string[];
-}
-
-export interface RadioStation {
-  id: string;
-  frequency: string; // e.g. "93.5 FM"
-  nameGujarati: string;
-  nameEnglish: string;
-  taglineGujarati: string;
-  genre: RadioGenre;
-  themeColor: string;
-  icon: string;
-  hostNameGujarati: string;
-  tracks: RadioTrack[];
-}
-
 export interface PassengerData {
   id: string;
   nameGujarati: string;

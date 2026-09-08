@@ -7,7 +7,7 @@ interface QuizModalProps {
   isOpen: boolean;
   onClose: () => void;
   quiz: CulturalQuiz | null;
-  onAnswerCorrect: (rewardCoins: number) => void;
+  onAnswerCorrect: (rewardCoins?: number) => void;
 }
 
 export const QuizModal: React.FC<QuizModalProps> = ({
@@ -58,7 +58,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
               <h3 className="text-lg font-black text-indigo-300">
                 ગુજરાતી હેરિટેજ ક્વિઝ ({quiz.locationNameGujarati})
               </h3>
-              <p className="text-xs text-indigo-200/70">સાચો જવાબ આપો અને ₹{quiz.coinReward} સિક્કા જીતો</p>
+              <p className="text-xs text-indigo-200/70">સાચો જવાબ આપી સંસ્કૃતિ વિશે જાણો</p>
             </div>
           </div>
           <button
@@ -119,7 +119,7 @@ export const QuizModal: React.FC<QuizModalProps> = ({
             >
               <div className="font-bold flex items-center space-x-1">
                 <Award size={14} className={isCorrect ? 'text-emerald-400' : 'text-amber-400'} />
-                <span>{isCorrect ? `વાહ! સાચો જવાબ (+₹${quiz.coinReward})` : 'સાચી હકીકત:'}</span>
+                <span>{isCorrect ? 'વાહ! સાચો જવાબ!' : 'સાચી હકીકત:'}</span>
               </div>
               <p>{quiz.factExplanationGujarati}</p>
             </div>

@@ -11,7 +11,7 @@ interface PassengerMissionModalProps {
   availableMissions: MissionData[];
   activeMission: MissionData | null;
   activePassenger: PassengerData | null;
-  coins: number;
+  coins?: number;
   reputationStars: number;
   completedMissions: string[];
   onAcceptMission: (mission: MissionData) => void;
@@ -25,7 +25,6 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
   availableMissions = [],
   activeMission,
   activePassenger,
-  coins = 0,
   reputationStars = 5,
   completedMissions = [],
   onAcceptMission,
@@ -56,15 +55,13 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
                 ગુજરાતી સવારી અને મિશન (Missions)
               </h2>
               <p className="text-xs text-amber-200/80 font-medium">
-                મુસાફરોને મુકામે પહોંચાડો, સિક્કા (₹) અને પ્રતિષ્ઠા (⭐) કમાઓ
+                મુસાફરોને મુકામે પહોંચાડો અને પ્રતિષ્ઠા (⭐) કમાઓ
               </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3 px-3 py-1.5 rounded-xl bg-black/40 border border-amber-500/30">
-              <span className="text-sm font-bold text-amber-400">🪙 ₹{coins}</span>
-              <span className="text-slate-600">|</span>
               <span className="text-sm font-bold text-yellow-300">⭐ {reputationStars} Stars</span>
             </div>
             <button
@@ -144,7 +141,6 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
                       </div>
 
                       <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-800 text-xs">
-                        <span className="text-amber-400 font-bold">🪙 ₹{mission.rewardCoins}</span>
                         <span className="text-yellow-400 font-semibold">⭐ +{mission.rewardReputation} Star</span>
                         {mission.timeLimitSec && (
                           <span className="text-sky-300 flex items-center space-x-1">
@@ -292,7 +288,7 @@ export const PassengerMissionModal: React.FC<PassengerMissionModalProps> = ({
                   </p>
 
                   <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                    <span className="text-amber-400 font-bold">ભાડું: ₹{passenger.fareCoins}</span>
+                    <span className="text-amber-300 font-medium">યાત્રાળુ સહાય</span>
                     <span className="text-yellow-400 font-semibold">⭐ +{passenger.reputationGain} Star</span>
                   </div>
                 </div>

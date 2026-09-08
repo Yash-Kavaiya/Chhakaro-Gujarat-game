@@ -74,12 +74,12 @@ export class GameWorld {
   public transmissionMode: TransmissionMode = 'auto';
   public currentGear: Gear = 'N';
 
-  // Vehicle Health & Fuel
+  // Vehicle Health
   public healthState: VehicleHealthState = {
-    fuelPercent: 88,
+    fuelPercent: 100,
     maxFuelLiters: 15,
-    currentFuelLiters: 13.2,
-    fuelConsumptionRateKm: 0.045, // liters/km
+    currentFuelLiters: 15,
+    fuelConsumptionRateKm: 0,
     engineTempCelsius: 82,
     isOverheating: false,
     hasPuncture: false,
@@ -535,19 +535,6 @@ export class GameWorld {
     let acceleration = 24; // km/h per sec
     const brakeForce = 45;
     let friction = 12;
-
-    // Fuel depletion
-    if (this.healthState.currentFuelLiters > 0) {
-      const consumed = (Math.abs(this.speed) > 1 ? 0.003 : 0.0008) * delta;
-      this.healthState.currentFuelLiters = Math.max(0, this.healthState.currentFuelLiters - consumed);
-      this.healthState.fuelPercent = Math.round(
-        (this.healthState.currentFuelLiters / this.healthState.maxFuelLiters) * 100
-      );
-    } else {
-      // Out of fuel!
-      maxForwardSpeed = 0;
-      acceleration = 0;
-    }
 
     // Puncture mechanics: limit speed and add pull
     if (this.healthState.hasPuncture) {

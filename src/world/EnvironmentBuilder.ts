@@ -1600,6 +1600,173 @@ export class EnvironmentBuilder {
   }
 
   /**
+   * Zone: Sardar Vallabhbhai Patel International Airport (SVPIA), Ahmedabad
+   * Terminal 1 & 2, modern glass facades, ATC radar tower, runway 23/05, apron aircraft,
+   * and in-flight commercial plane circling overhead.
+   */
+  private buildAhmedabadAirport(group: THREE.Group) {
+    const complex = new THREE.Group();
+    complex.position.set(0, 0, -45);
+
+    // 1. Tarmac & Apron Ground Slab
+    const apron = new THREE.Mesh(new THREE.PlaneGeometry(160, 120), this.roadMat);
+    apron.rotation.x = -Math.PI / 2;
+    apron.position.set(10, 0.02, 0);
+    complex.add(apron);
+
+    // 2. Runway 23/05 strip (asphalt + markings)
+    const runway = new THREE.Mesh(new THREE.PlaneGeometry(24, 150), this.roadMat);
+    runway.rotation.x = -Math.PI / 2;
+    runway.position.set(65, 0.03, 0);
+    complex.add(runway);
+
+    // Runway centerline dashes
+    for (let z = -65; z <= 65; z += 18) {
+      const dash = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 10), this.whiteLineMat);
+      dash.rotation.x = -Math.PI / 2;
+      dash.position.set(65, 0.04, z);
+      complex.add(dash);
+    }
+
+    // Runway threshold stripes
+    for (let rx = -9; rx <= 9; rx += 2.2) {
+      const tNorth = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 8), this.whiteLineMat);
+      tNorth.rotation.x = -Math.PI / 2;
+      tNorth.position.set(65 + rx, 0.04, -70);
+
+      const tSouth = new THREE.Mesh(new THREE.PlaneGeometry(1.0, 8), this.whiteLineMat);
+      tSouth.rotation.x = -Math.PI / 2;
+      tSouth.position.set(65 + rx, 0.04, 70);
+
+      complex.add(tNorth, tSouth);
+    }
+
+    // 3. International Terminal Building (Glass, Steel & Stone)
+    const terminal = new THREE.Group();
+    terminal.position.set(-15, 0, -10);
+
+    // Main Terminal Structure
+    const mainHall = new THREE.Mesh(new THREE.BoxGeometry(62, 12, 28), this.stoneMat);
+    mainHall.position.set(0, 6, 0);
+    mainHall.castShadow = true;
+
+    // Glass curtain facade facing the forecourt
+    const glassFacade = new THREE.Mesh(new THREE.BoxGeometry(60, 9, 1.2), this.glassMat);
+    glassFacade.position.set(0, 5.5, 14.1);
+
+    // Aerodynamic curved steel roof canopy
+    const roofCanopy = new THREE.Mesh(new THREE.BoxGeometry(66, 1.4, 34), this.steelMat);
+    roofCanopy.position.set(0, 12.6, 1);
+    roofCanopy.castShadow = true;
+
+    // Departure Flyover Porch / Canopy Columns
+    for (let c = -24; c <= 24; c += 16) {
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 6.5, 10), this.steelMat);
+      col.position.set(c, 3.25, 20);
+      terminal.add(col);
+    }
+
+    const flyoverPorch = new THREE.Mesh(new THREE.BoxGeometry(56, 1.0, 10), this.steelMat);
+    flyoverPorch.position.set(0, 6.8, 20);
+    terminal.add(mainHall, glassFacade, roofCanopy, flyoverPorch);
+
+    // Terminal signage
+    this.createBoard(terminal, '✈️ SVPIA — સરદાર વલ્લભભાઈ પટેલ આંતરરાષ્ટ્રીય વિમાનમથક | Terminal 1 & 2', 0, 14.2, 14.2, 26, 1.8);
+    complex.add(terminal);
+
+    // 4. Air Traffic Control (ATC) Tower
+    const atcTower = new THREE.Group();
+    atcTower.position.set(-52, 0, 15);
+
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 4.2, 32, 12), this.stoneMat);
+    shaft.position.y = 16;
+    shaft.castShadow = true;
+
+    const cabRing = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 3.4, 2.5, 12), this.steelMat);
+    cabRing.position.y = 32.5;
+
+    const cabGlass = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 5.0, 4.2, 12), this.glassMat);
+    cabGlass.position.y = 35.5;
+
+    const cabRoof = new THREE.Mesh(new THREE.CylinderGeometry(5.4, 5.2, 1.0, 12), this.steelMat);
+    cabRoof.position.y = 38.0;
+
+    atcTower.add(shaft, cabRing, cabGlass, cabRoof);
+
+    // Rotating ATC Radar on roof
+    const radarGroup = new THREE.Group();
+    radarGroup.position.set(0, 39.2, 0);
+    const radarPillar = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 1.2, 8), this.steelMat);
+    radarPillar.position.y = 0.6;
+    const radarDish = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.6, 0.3), this.steelMat);
+    radarDish.position.y = 1.3;
+    radarGroup.add(radarPillar, radarDish);
+    atcTower.add(radarGroup);
+    this.animatableRadars.push(radarGroup);
+
+    this.createBoard(atcTower, 'ATC કંટ્રોલ ટાવર', 0, 18, 4.5, 7.5, 1.2);
+    complex.add(atcTower);
+
+    // 5. Parked Commercial Jet on Apron
+    const parkedJet = new THREE.Group();
+    parkedJet.position.set(16, 0, 20);
+    parkedJet.rotation.y = -Math.PI / 4;
+
+    const pBody = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.3, 15, 10), this.marbleMat);
+    pBody.rotation.x = Math.PI / 2;
+    pBody.position.y = 2.8;
+
+    const pNose = new THREE.Mesh(new THREE.ConeGeometry(1.3, 3.2, 10), this.marbleMat);
+    pNose.rotation.x = -Math.PI / 2;
+    pNose.position.set(0, 2.8, 9.1);
+
+    const pWings = new THREE.Mesh(new THREE.BoxGeometry(16, 0.3, 3.6), this.steelMat);
+    pWings.position.set(0, 2.8, 1);
+
+    const pTail = new THREE.Mesh(new THREE.BoxGeometry(0.25, 3.5, 3), this.factoryRoofMat);
+    pTail.position.set(0, 5.0, -6.5);
+
+    parkedJet.add(pBody, pNose, pWings, pTail);
+    complex.add(parkedJet);
+
+    // 6. Circling Commercial In-Flight Plane in the Sky
+    const skyPlane = new THREE.Group();
+    const sBody = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 16, 12), this.marbleMat);
+    sBody.rotation.x = Math.PI / 2;
+
+    const sNose = new THREE.Mesh(new THREE.ConeGeometry(1.4, 3.4, 12), this.marbleMat);
+    sNose.rotation.x = -Math.PI / 2;
+    sNose.position.z = 9.7;
+
+    const sWings = new THREE.Mesh(new THREE.BoxGeometry(18, 0.3, 3.6), this.steelMat);
+    sWings.position.set(0, 0, 1);
+
+    const sTail = new THREE.Mesh(new THREE.BoxGeometry(0.3, 3.8, 3.2), this.royalPalaceMat);
+    sTail.position.set(0, 2.4, -6.8);
+
+    const strobeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const strobeL = new THREE.Mesh(new THREE.SphereGeometry(0.25, 6, 6), strobeMat);
+    strobeL.position.set(-9, 0, 1);
+    const strobeR = new THREE.Mesh(new THREE.SphereGeometry(0.25, 6, 6), strobeMat);
+    strobeR.position.set(9, 0, 1);
+
+    skyPlane.add(sBody, sNose, sWings, sTail, strobeL, strobeR);
+    complex.add(skyPlane);
+
+    this.animatableAirplanes.push({
+      group: skyPlane,
+      speed: 0.24,
+      radius: 115,
+      baseAlt: 44,
+      angle: 0,
+      strobeTimer: 0,
+      strobeLights: [strobeL, strobeR],
+    });
+
+    group.add(complex);
+  }
+
+  /**
    * Build roadside infrastructure. Every prop anchors to a real highway corridor via
    * roadsidePlacements.ts (road/water/prop-safe placement), so services hug the routes
    * they serve and never paint over asphalt, junctions or water.

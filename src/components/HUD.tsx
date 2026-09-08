@@ -23,7 +23,6 @@ import {
   HelpCircle,
   AlertTriangle,
   Flame,
-  Fuel,
   Lock,
   Unlock,
   RefreshCw,
@@ -34,7 +33,6 @@ import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthSta
 import { GameWorld } from '../world/GameWorld';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
-import { InCarRadio } from './InCarRadio';
 import { MiniMap } from './MiniMap';
 import { KakaStrip } from './KakaStrip';
 
@@ -193,13 +191,8 @@ export const HUD: React.FC<HUDProps> = ({
             </div>
           </div>
 
-          {/* Player Wallet & Reputation Coins */}
-          <div className="bg-slate-900/85 backdrop-blur-md border border-amber-400/40 rounded-2xl px-3.5 py-2 shadow-xl flex items-center gap-3 text-xs text-amber-50">
-            <div className="flex items-center gap-1 font-black text-amber-400">
-              <span className="text-base">🪙</span>
-              <span>₹{coins}</span>
-            </div>
-            <div className="text-slate-600">|</div>
+          {/* Player Reputation Stars */}
+          <div className="bg-slate-900/85 backdrop-blur-md border border-amber-400/40 rounded-2xl px-3.5 py-2 shadow-xl flex items-center gap-2 text-xs text-amber-50">
             <div className="flex items-center gap-1 font-bold text-yellow-300">
               <span className="text-base">⭐</span>
               <span>{reputationStars}</span>
@@ -416,27 +409,8 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="flex items-center gap-2">
             {healthState && (
               <div className="bg-slate-900/90 backdrop-blur-md border border-amber-500/40 rounded-2xl p-2.5 shadow-xl flex flex-col gap-1.5 text-xs">
-                {/* Fuel Meter */}
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1 font-bold text-amber-400 text-[11px]">
-                    <Fuel className="w-3.5 h-3.5" />
-                    <span>ડીઝલ:</span>
-                  </span>
-                  <span className={`font-black ${healthState.fuelPercent < 20 ? 'text-red-400 animate-pulse' : 'text-slate-200'}`}>
-                    {healthState.fuelPercent}%
-                  </span>
-                </div>
-                <div className="w-24 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all ${
-                      healthState.fuelPercent < 20 ? 'bg-red-500' : healthState.fuelPercent < 50 ? 'bg-amber-500' : 'bg-emerald-500'
-                    }`}
-                    style={{ width: `${healthState.fuelPercent}%` }}
-                  />
-                </div>
-
                 {/* Engine Temp & Puncture Status */}
-                <div className="flex items-center justify-between gap-2 text-[10px] pt-1 border-t border-slate-800">
+                <div className="flex items-center justify-between gap-2 text-[10px]">
                   <span className={`flex items-center gap-0.5 font-bold ${healthState.isOverheating ? 'text-red-400 animate-pulse' : 'text-slate-400'}`}>
                     <Flame className="w-3 h-3" />
                     <span>{Math.round(healthState.engineTempCelsius)}°C</span>
@@ -594,38 +568,25 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Middle Interactive Alerts: Facility Action (Petrol/Garage) & Active Passenger Dialogue */}
       <div className="flex flex-col items-center justify-center gap-3 pointer-events-auto my-auto max-w-xl mx-auto w-full">
-        {/* Nearby Petrol Pump or Repair Garage Prompt */}
-        {nearbyFacility && (
+        {/* Nearby Repair Garage Prompt */}
+        {nearbyFacility && nearbyFacility.type === 'garage' && (
           <div className="bg-slate-950/90 border-2 border-amber-400 p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-4 animate-bounce w-full">
             <div className="flex items-center gap-3">
-              <span className="text-3xl">
-                {nearbyFacility.type === 'petrol' ? '⛽' : nearbyFacility.type === 'garage' ? '🔧' : '🛣️'}
-              </span>
+              <span className="text-3xl">🔧</span>
               <div>
                 <h4 className="font-black text-amber-300 text-sm">{nearbyFacility.name}</h4>
                 <p className="text-xs text-slate-300">
-                  {nearbyFacility.type === 'petrol'
-                    ? 'ડીઝલ પુરાવો અને આગળની મુસાફરી ચાલુ રાખો'
-                    : 'પંચર રીપેર અને એન્જિન સર્વિસ ઉપલબ્ધ'}
+                  પંચર રીપેર અને એન્જિન સર્વિસ ઉપલબ્ધ
                 </p>
               </div>
             </div>
 
-            {nearbyFacility.type === 'petrol' && onRefuel && (
-              <button
-                onClick={onRefuel}
-                className="py-2 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg"
-              >
-                ₹૫૦૦ ડીઝલ પુરાવો
-              </button>
-            )}
-
-            {nearbyFacility.type === 'garage' && onRepair && (
+            {onRepair && (
               <button
                 onClick={onRepair}
                 className="py-2 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 font-bold text-xs text-slate-950 whitespace-nowrap shadow-lg"
               >
-                પંચર રિપેર (₹૨૦૦)
+                પંચર રિપેર કરો
               </button>
             )}
           </div>
@@ -656,31 +617,6 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         )}
 
-        {/* Landmark-approach prompt — lighter than the facility CTA; the whole pill is the
-            action so it works for touch as well as the E key. */}
-        {nearbyLandmark && (() => {
-          const seen = visitedLocations.includes(nearbyLandmark.id);
-          return (
-            <button
-              onClick={() => onInspectLandmark(nearbyLandmark)}
-              className="bg-slate-900/80 border border-amber-500/50 hover:border-amber-400 px-4 py-2 rounded-2xl shadow-lg flex items-center gap-2.5 text-xs w-full pointer-events-auto transition-colors active:scale-[0.99]"
-            >
-              <span className="text-xl shrink-0">{seen ? '✓' : '⛳'}</span>
-              <span className="font-black text-amber-200 truncate">{nearbyLandmark.nameGujarati}</span>
-              <span className="text-slate-400 shrink-0">—</span>
-              <span className="text-slate-300 shrink-0">
-                {/* Expert mode rebinds E to shift-up, so only show the key hint outside Expert.
-                    The whole pill is still tappable/clickable either way. */}
-                {!expertMode && (
-                  <>
-                    <span className="font-bold text-amber-300">E</span> દબાવો ·{' '}
-                  </>
-                )}
-                {seen ? 'વિગતો જુઓ' : 'વધુ જાણો'}
-              </span>
-            </button>
-          );
-        })()}
 
         {/* Active Passenger In Chhakaro Info Card */}
         {activePassenger && (
@@ -697,9 +633,9 @@ export const HUD: React.FC<HUDProps> = ({
         )}
       </div>
 
-      {/* Bottom HUD: MiniMap + In-Car Radio (Left) & Menu Navigation Dock (Right) */}
+      {/* Bottom HUD: MiniMap (Left) & Menu Navigation Dock (Right) */}
       <div className="flex flex-col sm:flex-row items-end sm:items-end justify-between gap-3 pointer-events-none w-full">
-        {/* Left Side: Kaka strip + MiniMap above the In-Car Radio */}
+        {/* Left Side: Kaka strip + MiniMap */}
         <div className="flex flex-col gap-2 items-start">
           <KakaStrip
             lastLine={lastKakaLine}
@@ -717,7 +653,6 @@ export const HUD: React.FC<HUDProps> = ({
             navTargetId={navTargetId}
             activeMission={activeMission ?? null}
           />
-          <InCarRadio />
         </div>
 
         {/* Right Side: Bottom Menu Navigation Dock */}
