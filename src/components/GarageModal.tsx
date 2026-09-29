@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { X, Wrench, Sparkles, Volume2, Palette, Shield } from 'lucide-react';
-import { ChhakaroCustomization } from '../types';
+import { X, Wrench, Sparkles, Volume2, Palette, Shield, Car } from 'lucide-react';
+import { ChhakaroCustomization, VehicleType } from '../types';
 import { soundManager } from '../audio/SoundManager';
+import { VehiclePicker } from './VehiclePicker';
 
 interface GarageModalProps {
   isOpen: boolean;
   onClose: () => void;
   customization: ChhakaroCustomization;
   onUpdateCustomization: (custom: ChhakaroCustomization) => void;
+  vehicleType: VehicleType;
+  onChangeVehicle: (v: VehicleType) => void;
 }
 
 export const GarageModal: React.FC<GarageModalProps> = ({
@@ -15,6 +18,8 @@ export const GarageModal: React.FC<GarageModalProps> = ({
   onClose,
   customization,
   onUpdateCustomization,
+  vehicleType,
+  onChangeVehicle,
 }) => {
   const [bodyColor, setBodyColor] = useState(customization.bodyColor);
   const [stickerText, setStickerText] = useState(customization.stickerText);
@@ -52,7 +57,7 @@ export const GarageModal: React.FC<GarageModalProps> = ({
       hasCanopy: true,
     };
     onUpdateCustomization(updated);
-    soundManager.speakGujaratiTextFallback('વાહ ભાઈ વાહ! આપણો છકડો એકદમ ચમકતો તૈયાર થઈ ગયો!');
+    soundManager.speakGujaratiTextFallback('વાહ ભાઈ વાહ! આપણું વાહન એકદમ ચમકતું તૈયાર થઈ ગયું!');
     onClose();
   };
 
@@ -69,8 +74,8 @@ export const GarageModal: React.FC<GarageModalProps> = ({
           <div className="flex items-center gap-3">
             <Wrench className="w-7 h-7 text-amber-200" />
             <div>
-              <h2 className="text-xl font-bold font-serif">છકડો શણગાર ગેરેજ (Customization)</h2>
-              <p className="text-xs text-amber-100">તમારા છકડાનો રંગ, હોર્ન અને સ્ટીકરો બદલો</p>
+              <h2 className="text-xl font-bold font-serif">વાહન ગેરેજ (Garage)</h2>
+              <p className="text-xs text-amber-100">વાહન બદલો — છકડો, કાર કે બાઇક — અને રંગ, હોર્ન, સ્ટીકર સજાવો</p>
             </div>
           </div>
           <button
@@ -84,11 +89,20 @@ export const GarageModal: React.FC<GarageModalProps> = ({
 
         {/* Form Body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-gradient-to-b from-slate-900 to-slate-950">
+          {/* 0. Vehicle — swaps instantly, in place */}
+          <div>
+            <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2.5">
+              <Car className="w-4 h-4" />
+              <span>વાહન પસંદ કરો:</span>
+            </label>
+            <VehiclePicker value={vehicleType} onChange={onChangeVehicle} />
+          </div>
+
           {/* 1. Body Paint Palette */}
           <div>
             <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2.5">
               <Palette className="w-4 h-4" />
-              <span>૧. છકડાનો બોડી કલર પસંદ કરો:</span>
+              <span>૧. વાહનનો બોડી કલર પસંદ કરો:</span>
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
               {colorOptions.map((opt) => (
@@ -145,7 +159,7 @@ export const GarageModal: React.FC<GarageModalProps> = ({
           <div>
             <label className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-2.5">
               <Volume2 className="w-4 h-4" />
-              <span>૩. છકડાનું હોર્ન સિલેક્ટ કરો:</span>
+              <span>૩. હોર્ન સિલેક્ટ કરો:</span>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {[
@@ -188,7 +202,7 @@ export const GarageModal: React.FC<GarageModalProps> = ({
             className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-3 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 transition-transform active:scale-98"
           >
             <Sparkles className="w-4 h-4" />
-            <span>છકડાનો નવો લુક લાગુ કરો!</span>
+            <span>નવો લુક લાગુ કરો!</span>
           </button>
         </div>
       </div>

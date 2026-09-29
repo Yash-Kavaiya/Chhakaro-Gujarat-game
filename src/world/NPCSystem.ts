@@ -789,7 +789,7 @@ export class NPCSystem {
 
     // Gujarati greeting text
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold 28px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(npc.greetingGujarati, 256, 60);

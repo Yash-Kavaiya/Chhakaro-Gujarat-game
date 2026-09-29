@@ -1,7 +1,7 @@
 /**
- * Non-overlapping Gujarati voice queue for Kanji Kaka.
+ * Non-overlapping Gujarati voice queue for spoken narration.
  *
- * Every spoken Kaka line — chat replies, proactive narration, nav cues — goes through the
+ * Every spoken line — arrival welcomes, notices, nav cues — goes through the
  * one `voiceQueue` singleton so utterances play strictly one after another instead of the
  * old "last call wins, `speechSynthesis.cancel()` every time" behaviour.
  *
@@ -154,15 +154,5 @@ async function productionSpeak(text: string): Promise<void> {
 
 const productionTransport: VoiceTransport = { speak: productionSpeak };
 
-// App installs the live "કાકા શાંત" check here once it has mounted; until then Kaka is
-// only gated by the global sound mute.
-let kakaMutedGetter: () => boolean = () => false;
-export function setKakaMutedGetter(fn: () => boolean): void {
-  kakaMutedGetter = fn;
-}
-
-/** The single Kaka voice channel for the whole app. */
-export const voiceQueue = createVoiceQueue(
-  productionTransport,
-  () => soundManager.getMuted() || kakaMutedGetter(),
-);
+/** The single voice channel for the whole app, gated by the global sound mute. */
+export const voiceQueue = createVoiceQueue(productionTransport, () => soundManager.getMuted());

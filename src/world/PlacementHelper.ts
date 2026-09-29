@@ -2,6 +2,8 @@ import { GUJARAT_LOCATIONS } from '../data/locations';
 import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
 import { RoadGeometryHelper } from './RoadGeometryHelper';
 import { WaterOccupancy } from './WaterOccupancy';
+import { distanceToNearestRail, RAIL_BED_WIDTH } from '../data/railwayNetwork';
+import { isSea } from '../data/gujaratGeography';
 
 export interface PlacedSpot {
   x: number;
@@ -25,7 +27,7 @@ const JUNCTION_RADIUS = 28;
  * Everything decorative (farms, factories, malls, stalls, petrol pumps…) is anchored to a
  * real highway corridor at a parameter t, offset to one side, then nudged to the nearest
  * clear spot. That guarantees props hug roads for context but never paint over asphalt,
- * junction plazas, water bodies, or each other.
+ * junction plazas, railway tracks, rivers, the sea, or each other.
  */
 export class PlacementHelper {
   private static segmentsCache: Map<string, ResolvedHighwaySegment> | null = null;
@@ -65,6 +67,8 @@ export class PlacementHelper {
     }
 
     if (WaterOccupancy.isInsideWater(cx, cz, margin + hd)) return false;
+    if (isSea(cx, cz, margin + hd)) return false;
+    if (distanceToNearestRail(cx, cz) < RAIL_BED_WIDTH / 2 + margin + hd) return false;
 
     const box: PlacedBox = {
       minX: cx - halfX - margin,

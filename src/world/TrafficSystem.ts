@@ -310,19 +310,19 @@ export class TrafficSystem {
     }
     // Top Gujarati Organization Header
     rctx.fillStyle = '#ffffff';
-    rctx.font = 'bold 20px sans-serif';
+    rctx.font = 'bold 20px "Hind Vadodara", sans-serif';
     rctx.textAlign = 'center';
     rctx.fillText('ગુજરાત રાજ્ય માર્ગ વાહન વ્યવહાર નિગમ', 256, 32);
     // Giant Bold GSRTC Text
     rctx.fillStyle = '#fde047';
-    rctx.font = '900 84px sans-serif';
+    rctx.font = '900 84px "Hind Vadodara", sans-serif';
     rctx.strokeStyle = '#ffffff';
     rctx.lineWidth = 4;
     rctx.strokeText('GSRTC', 256, 114);
     rctx.fillText('GSRTC', 256, 114);
     // Subtitle
     rctx.fillStyle = '#ffffff';
-    rctx.font = 'bold 22px sans-serif';
+    rctx.font = 'bold 22px "Hind Vadodara", sans-serif';
     rctx.fillText('GURJARNAGARI · ગુર્જરનગરી', 256, 150);
     // Number Plate & Speed Tag
     rctx.fillStyle = '#facc15';
@@ -335,7 +335,7 @@ export class TrafficSystem {
     rctx.fillText('GJ 18 Z 1960', 256, 194);
     // Speed sticker
     rctx.fillStyle = '#ffffff';
-    rctx.font = 'bold 16px sans-serif';
+    rctx.font = 'bold 16px "Hind Vadodara", sans-serif';
     rctx.fillText('SPEED 65 KM/H', 80, 192);
     rctx.fillText('KEEP DISTANCE', 432, 192);
 
@@ -374,16 +374,16 @@ export class TrafficSystem {
     }
     // Prominent Bold GSRTC Branding Center
     sctx.fillStyle = '#fde047';
-    sctx.font = '900 88px sans-serif';
+    sctx.font = '900 88px "Hind Vadodara", sans-serif';
     sctx.strokeStyle = '#ffffff';
     sctx.lineWidth = 4;
     sctx.strokeText('GSRTC', 512, 105);
     sctx.fillText('GSRTC', 512, 105);
     // Gujarati ST header & Slogan
     sctx.fillStyle = '#ffffff';
-    sctx.font = 'bold 28px sans-serif';
+    sctx.font = 'bold 28px "Hind Vadodara", sans-serif';
     sctx.fillText('ગુજરાત એસ.ટી. · GUJARAT ST', 512, 150);
-    sctx.font = 'bold 20px sans-serif';
+    sctx.font = 'bold 20px "Hind Vadodara", sans-serif';
     sctx.fillText('« સલામત સવારી, એસ.ટી. અમારી »', 512, 240);
 
     const sideTex = new THREE.CanvasTexture(sideCanvas);
@@ -416,7 +416,7 @@ export class TrafficSystem {
     gctx.strokeRect(6, 6, 500, 116);
     // GSRTC Emblem
     gctx.fillStyle = '#fde047';
-    gctx.font = '900 68px sans-serif';
+    gctx.font = '900 68px "Hind Vadodara", sans-serif';
     gctx.textAlign = 'center';
     gctx.textBaseline = 'middle';
     gctx.fillText('GSRTC', 256, 64);
@@ -438,7 +438,7 @@ export class TrafficSystem {
     vctx.fillStyle = '#991b1b';
     vctx.fillRect(0, 0, 512, 80);
     vctx.fillStyle = '#fef08a';
-    vctx.font = 'bold 32px sans-serif';
+    vctx.font = 'bold 32px "Hind Vadodara", sans-serif';
     vctx.textAlign = 'center';
     vctx.textBaseline = 'middle';
     vctx.fillText('★ GSRTC EXPRESS · ગુર્જરનગરી ★', 256, 40);
@@ -464,13 +464,13 @@ export class TrafficSystem {
     dctx.lineWidth = 4;
     dctx.strokeRect(4, 4, 504, 120);
     dctx.fillStyle = '#facc15';
-    dctx.font = 'bold 36px sans-serif';
+    dctx.font = 'bold 36px "Hind Vadodara", sans-serif';
     dctx.textAlign = 'center';
     dctx.textBaseline = 'middle';
     const busDestText = direction > 0 ? `${segment.fromLoc.nameGujarati} ➔ ${segment.toLoc.nameGujarati}` : `${segment.toLoc.nameGujarati} ➔ ${segment.fromLoc.nameGujarati}`;
     dctx.fillText(busDestText, 256, 44);
     dctx.fillStyle = '#ffffff';
-    dctx.font = '900 24px sans-serif';
+    dctx.font = '900 24px "Hind Vadodara", sans-serif';
     dctx.fillText('GSRTC EXPRESS · ગુર્જરનગરી', 256, 92);
     const destTex = new THREE.CanvasTexture(destCanvas);
 
@@ -591,12 +591,12 @@ export class TrafficSystem {
     sctx.fillStyle = '#facc15';
     sctx.fillRect(0, 0, 512, 128);
     sctx.fillStyle = '#dc2626';
-    sctx.font = 'bold 44px sans-serif';
+    sctx.font = 'bold 44px "Hind Vadodara", sans-serif';
     sctx.textAlign = 'center';
     sctx.textBaseline = 'middle';
     sctx.fillText('HORN   OK   PLEASE', 256, 46);
     sctx.fillStyle = '#1e293b';
-    sctx.font = 'bold 24px sans-serif';
+    sctx.font = 'bold 24px "Hind Vadodara", sans-serif';
     sctx.fillText('બુરી નજર વાલે તેરા મુહ કાલા · મા કૃપા', 256, 94);
     const signTex = new THREE.CanvasTexture(signCanvas);
 
@@ -617,10 +617,10 @@ export class TrafficSystem {
       actx.fillStyle = '#dc2626';
       actx.fillRect(0, 0, 512, 256);
       actx.fillStyle = '#ffffff';
-      actx.font = 'bold 54px sans-serif';
+      actx.font = 'bold 54px "Hind Vadodara", sans-serif';
       actx.textAlign = 'center';
       actx.fillText('Amul', 256, 90);
-      actx.font = 'bold 30px sans-serif';
+      actx.font = 'bold 30px "Hind Vadodara", sans-serif';
       actx.fillText('ધ ટેસ્ટ ઓફ ઇન્ડિયા · દૂધ ટેન્કર', 256, 170);
       const amulTex = new THREE.CanvasTexture(amulCanvas);
 

@@ -2,7 +2,7 @@
  * One channel for every reward / event message in the game. App binds `notify(opts)`
  * (it owns the `notice` state + timer); every path that used to pair an ad-hoc
  * `setFloatingBanner(...)` with a loose `soundManager.*` call goes through it instead,
- * so a stamp, a souvenir, a quiz win and a mission payout all feel the same.
+ * so an arrival, a repair and a mission payout all feel the same.
  */
 
 export type NotifyTone = 'reward' | 'info' | 'warn';

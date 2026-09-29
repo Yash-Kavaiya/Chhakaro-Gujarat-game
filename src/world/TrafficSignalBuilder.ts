@@ -236,17 +236,17 @@ export class TrafficSignalBuilder {
     vctx.strokeRect(6, 6, 1012, 244);
 
     vctx.fillStyle = '#fde047';
-    vctx.font = 'bold 44px "Noto Sans Gujarati", sans-serif';
+    vctx.font = 'bold 44px "Hind Vadodara", sans-serif';
     vctx.textAlign = 'center';
     vctx.textBaseline = 'middle';
     vctx.fillText(titleGujarati, 512, 65);
 
     vctx.fillStyle = '#38bdf8';
-    vctx.font = 'bold 36px sans-serif';
+    vctx.font = 'bold 36px "Hind Vadodara", sans-serif';
     vctx.fillText(subText, 512, 140);
 
     vctx.fillStyle = '#22c55e';
-    vctx.font = 'bold 28px sans-serif';
+    vctx.font = 'bold 28px "Hind Vadodara", sans-serif';
     vctx.fillText('🚦 GUJARAT STATE HIGHWAY TRAFFIC CONTROL 🚦', 512, 205);
 
     const vmsTex = new THREE.CanvasTexture(vmsCanvas);

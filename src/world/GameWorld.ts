@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 import { ChhakaroModel } from './ChhakaroModel';
+import { CarModel } from './vehicles/CarModel';
+import { BikeModel } from './vehicles/BikeModel';
+import { VehicleModel, VehicleSpec, VEHICLE_SPECS } from './vehicles/VehicleModel';
 import { EnvironmentBuilder } from './EnvironmentBuilder';
 import { TimeOfDaySystem } from './TimeOfDaySystem';
 import { NPCSystem } from './NPCSystem';
 import { TrafficSystem } from './TrafficSystem';
 import { IncidentDirector } from './IncidentDirector';
 import { IncidentSpawn } from '../state/incidents';
-import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
-import { GUJARAT_LOCATIONS } from '../data/locations';
+import { LocationData, VehicleControls, CameraMode, WeatherType, ChhakaroCustomization, TimeOfDayState, PassengerData, VehicleHealthState, TimeFreezeMode, TransmissionMode, VehicleType } from '../types';
+import { GUJARAT_LOCATIONS, START_LOCATION } from '../data/locations';
 import { PETROL_PUMPS, AUTO_GARAGES, TOLL_PLAZA } from '../data/roadsidePlacements';
-import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
+import { isSea, WORLD_BOUNDS } from '../data/gujaratGeography';
 import { soundManager } from '../audio/SoundManager';
 import { pickWeather, weatherParams, WeatherParams } from '../state/weatherDirector';
 import {
@@ -26,14 +29,25 @@ import {
 
 // Gir Forest zone centre — hoisted so the per-frame speed-cap distance check in updatePhysics
 // doesn't allocate a new Vector3 every frame.
-const GIR_CENTER_VEC = new THREE.Vector3(150, 0, 550);
+const GIR = GUJARAT_LOCATIONS.find((l) => l.id === 'gir');
+const GIR_CENTER_VEC = new THREE.Vector3(GIR?.worldPosition.x ?? 116, 0, GIR?.worldPosition.z ?? 638);
+const GIR_SPEED_RADIUS = GIR?.zoneRadius ?? 170;
+
+// React-facing telemetry is throttled: the render loop runs at 60 fps but the HUD only needs
+// ~10 Hz for the speedometer and ~4 Hz for health / clock, and every callback re-renders App.
+const SPEED_EMIT_MS = 100;
+const SLOW_EMIT_MS = 250;
 
 export class GameWorld {
   public container: HTMLElement;
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
-  public chhakaro: ChhakaroModel;
+  /** The drivable vehicle model (chhakaro, car or bike — see setVehicleType). */
+  public vehicle: VehicleModel;
+  public vehicleType: VehicleType = 'chhakaro';
+  private spec: VehicleSpec = VEHICLE_SPECS.chhakaro;
+  private customization: ChhakaroCustomization;
   public environmentBuilder: EnvironmentBuilder;
   public timeOfDaySystem: TimeOfDaySystem;
   public npcSystem: NPCSystem;
@@ -97,11 +111,10 @@ export class GameWorld {
   public droneAngleOffset: number = 0;
 
   // Game & Navigation
-  public currentLocation: LocationData = GUJARAT_LOCATIONS[0];
+  public currentLocation: LocationData = START_LOCATION;
   public nearbyLandmark: LocationData | null = null;
   public isNearLandmark: boolean = false;
   public nearbyFacility: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null = null;
-  public nearbyEncounter: RoadsideEncounter | null = null;
   public totalDistanceDriven: number = 0; // in meters
 
   // Highway toll: once paid, the toll prompt stays suppressed until the odometer passes this
@@ -119,13 +132,16 @@ export class GameWorld {
   public onHealthUpdate?: (health: VehicleHealthState) => void;
   public onFacilityApproach?: (facility: { type: 'petrol' | 'garage' | 'toll'; name: string } | null) => void;
   public onTollApproach?: (toll: { name: string } | null) => void;
-  public onEncounterApproach?: (encounter: RoadsideEncounter | null) => void;
   public onGearChange?: (gear: Gear) => void;
   public onWeatherChange?: (weather: WeatherType) => void;
   public onIncident?: (i: IncidentSpawn) => void;
 
   private clock: THREE.Clock;
   private animationFrameId: number = 0;
+  private lastSpeedEmit = 0;
+  private lastSlowEmit = 0;
+  private onKeyDown = (e: KeyboardEvent) => this.handleKey(e, true);
+  private onKeyUp = (e: KeyboardEvent) => this.handleKey(e, false);
   private controls: VehicleControls = {
     forward: false,
     backward: false,
@@ -144,8 +160,11 @@ export class GameWorld {
     customization: ChhakaroCustomization,
     initialDistanceMeters = 0,
     transmissionMode: TransmissionMode = 'auto',
+    vehicleType: VehicleType = 'chhakaro',
+    spawn: LocationData = START_LOCATION,
   ) {
     this.container = container;
+    this.customization = customization;
     this.clock = new THREE.Clock();
     // Resume: seed the odometer so totalKm doesn't snap to 0 on the first frame.
     this.totalDistanceDriven = initialDistanceMeters;
@@ -224,17 +243,21 @@ export class GameWorld {
     // 8b. Procedural road incidents (cattle crossings, stalled trucks, slow tractors, puddles)
     this.incidentDirector = new IncidentDirector(this.scene);
 
-    // 9. Spawn Chhakaro Model
-    this.chhakaro = new ChhakaroModel(customization);
-    this.scene.add(this.chhakaro.group);
-    this.dirLight.target = this.chhakaro.group;
+    // 9. Spawn the player's vehicle at the start location (Gandhinagar)
+    this.vehicleType = vehicleType;
+    this.spec = VEHICLE_SPECS[vehicleType];
+    this.vehicle = this.createVehicle(vehicleType);
+    this.scene.add(this.vehicle.group);
+    this.dirLight.target = this.vehicle.group;
+    this.placeAt(spawn);
 
     // 10. Setup Rain Particles
     this.initRainSystem();
 
     // 11. Event Listeners
     window.addEventListener('resize', this.onWindowResize);
-    this.setupKeyboardListeners();
+    window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
 
     // Initial time update
     this.currentTimeOfDayState = this.timeOfDaySystem.update(0, this.vehiclePos, this.currentWeather);
@@ -269,9 +292,34 @@ export class GameWorld {
     this.scene.add(this.rainParticles);
   }
 
+  private createVehicle(type: VehicleType): VehicleModel {
+    if (type === 'car') return new CarModel(this.customization);
+    if (type === 'bike') return new BikeModel(this.customization);
+    return new ChhakaroModel(this.customization);
+  }
+
+  /** Swap the drivable vehicle in place (garage). Keeps position, heading and passenger. */
+  public setVehicleType(type: VehicleType) {
+    if (type === this.vehicleType) return;
+    const old = this.vehicle;
+    this.scene.remove(old.group);
+    old.group.traverse((o) => {
+      if (o instanceof THREE.Mesh) o.geometry.dispose();
+    });
+    this.vehicleType = type;
+    this.spec = VEHICLE_SPECS[type];
+    this.vehicle = this.createVehicle(type);
+    this.vehicle.group.position.copy(this.vehiclePos);
+    this.vehicle.group.rotation.y = this.vehicleRotation;
+    this.vehicle.setPassenger(this.currentPassenger);
+    this.scene.add(this.vehicle.group);
+    this.dirLight.target = this.vehicle.group;
+    this.speed = 0;
+  }
+
   public setPassenger(passenger: PassengerData | null) {
     this.currentPassenger = passenger;
-    this.chhakaro.setPassenger(passenger);
+    this.vehicle.setPassenger(passenger);
   }
 
   public refuel(amountLiters: number = 10) {
@@ -332,7 +380,7 @@ export class GameWorld {
       (this.rainParticles.material as THREE.PointsMaterial).opacity = this.weatherParamsCache.rainOpacity;
     }
 
-    // Keep React (HUD icon, Kaka context) in step when the director re-picks the weather.
+    // Keep React (HUD icon) in step when the director re-picks the weather.
     this.onWeatherChange?.(weather);
   }
 
@@ -441,7 +489,8 @@ export class GameWorld {
   }
 
   public updateCustomization(custom: ChhakaroCustomization) {
-    this.chhakaro.updateCustomization(custom);
+    this.customization = custom;
+    this.vehicle.updateCustomization(custom);
   }
 
   public setControlState(key: keyof VehicleControls, state: boolean) {
@@ -456,13 +505,7 @@ export class GameWorld {
    * Fast travel teleportation to any Gujarat landmark
    */
   public teleportToLocation(loc: LocationData) {
-    this.currentLocation = loc;
-    this.vehiclePos.set(loc.worldPosition.x, 0, loc.worldPosition.z + 10);
-    this.vehicleRotation = Math.PI; // Face toward landmark
-    this.speed = 0;
-    this.steerAngle = 0;
-    this.chhakaro.group.position.copy(this.vehiclePos);
-    this.chhakaro.group.rotation.y = this.vehicleRotation;
+    this.placeAt(loc);
 
     // Adapt weather to region. Route through setManualWeather so the arrival look holds for a
     // stretch before the WeatherDirector (which also knows these regions) resumes control —
@@ -474,8 +517,19 @@ export class GameWorld {
     if (this.onLocationChange) this.onLocationChange(loc);
   }
 
-  private setupKeyboardListeners() {
-    const handleKey = (e: KeyboardEvent, isDown: boolean) => {
+  /** Park the vehicle at a location's junction, facing its landmark. No callbacks. */
+  private placeAt(loc: LocationData) {
+    this.currentLocation = loc;
+    this.vehiclePos.set(loc.worldPosition.x, 0, loc.worldPosition.z + 10);
+    this.vehicleRotation = 0; // Face toward the landmark (−Z)
+    this.speed = 0;
+    this.steerAngle = 0;
+    this.vehicle.group.position.copy(this.vehiclePos);
+    this.vehicle.group.rotation.y = this.vehicleRotation;
+  }
+
+  private handleKey(e: KeyboardEvent, isDown: boolean) {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const key = e.key.toLowerCase();
 
       switch (key) {
@@ -517,10 +571,6 @@ export class GameWorld {
           }
           break;
       }
-    };
-
-    window.addEventListener('keydown', (e) => handleKey(e, true));
-    window.addEventListener('keyup', (e) => handleKey(e, false));
   }
 
   private updatePhysics(delta: number) {
@@ -529,23 +579,26 @@ export class GameWorld {
       return;
     }
 
-    // Top Speed limits
-    let maxForwardSpeed = 68; // km/h for authentic Saurashtra Chhakaro
+    // Top speed / pull / brakes come from the vehicle spec (chhakaro, car or bike). The shared
+    // 4-speed gearbox is tuned for the chhakaro; `k` stretches its bands for faster vehicles.
+    const spec = this.spec;
+    const k = spec.gearScale;
+    let maxForwardSpeed = spec.maxSpeed;
     const maxReverseSpeed = -18;
-    let acceleration = 24; // km/h per sec
-    const brakeForce = 45;
+    let acceleration = spec.acceleration; // km/h per sec
+    const brakeForce = spec.brakeForce;
     let friction = 12;
 
     // Puncture mechanics: limit speed and add pull
     if (this.healthState.hasPuncture) {
-      maxForwardSpeed = Math.min(maxForwardSpeed, 22);
+      maxForwardSpeed = Math.min(maxForwardSpeed, 22 * k);
       acceleration *= 0.5;
       // Slight steer pull
       this.steerAngle += 0.05 * delta;
     }
 
-    // Engine temperature simulation
-    if (Math.abs(this.speed) > 55) {
+    // Engine temperature simulation (runs hot near the top of the speed range)
+    if (Math.abs(this.speed) > spec.maxSpeed * 0.8) {
       this.healthState.engineTempCelsius = Math.min(125, this.healthState.engineTempCelsius + 1.2 * delta);
     } else {
       this.healthState.engineTempCelsius = Math.max(78, this.healthState.engineTempCelsius - 0.5 * delta);
@@ -554,7 +607,7 @@ export class GameWorld {
 
     // Gir Forest Mode speed cap (25 km/h) to protect Asiatic lions & wildlife
     const distToGir = this.vehiclePos.distanceTo(GIR_CENTER_VEC);
-    if (distToGir < 160) {
+    if (distToGir < GIR_SPEED_RADIUS) {
       maxForwardSpeed = Math.min(maxForwardSpeed, 25);
     }
 
@@ -582,12 +635,12 @@ export class GameWorld {
     // otherwise an automatic deadlocks on the gear-1 ceiling (18 km/h).
     if (this.transmissionMode === 'auto') {
       this.currentGear = autoGearUnderThrottle(
-        this.speed, this.currentGear, this.controls.forward, acceleration * delta,
+        this.speed / k, this.currentGear, this.controls.forward, (acceleration * delta) / k,
       );
     } // manual: this.currentGear is set by shiftUp/shiftDown
-    const gearMult = accelMultiplier(this.currentGear, Math.abs(this.speed), this.transmissionMode);
+    const gearMult = accelMultiplier(this.currentGear, Math.abs(this.speed) / k, this.transmissionMode);
     acceleration *= gearMult;
-    maxForwardSpeed = Math.min(maxForwardSpeed, gearMaxSpeed(this.currentGear));
+    maxForwardSpeed = Math.min(maxForwardSpeed, gearMaxSpeed(this.currentGear) * k);
     if (this.currentGear === 'N') { acceleration = 0; }
     this.emitGear();
 
@@ -627,7 +680,7 @@ export class GameWorld {
 
     // 3. Update vehicle heading orientation
     if (Math.abs(this.speed) > 0.1) {
-      const turnRadius = 3.5;
+      const turnRadius = spec.turnRadius;
       const turnRate = (this.speed / 3.6 / turnRadius) * Math.sin(this.steerAngle);
       this.vehicleRotation += turnRate * delta;
     }
@@ -637,24 +690,29 @@ export class GameWorld {
     const forwardZ = -Math.cos(this.vehicleRotation);
     const moveStep = (this.speed / 3.6) * delta;
 
-    this.vehiclePos.x += forwardX * moveStep;
-    this.vehiclePos.z += forwardZ * moveStep;
-
-    // Track total distance
-    if (Math.abs(moveStep) > 0) {
+    const nextX = this.vehiclePos.x + forwardX * moveStep;
+    const nextZ = this.vehiclePos.z + forwardZ * moveStep;
+    // The Arabian Sea / gulfs and the edge of the map are solid: the vehicle stops at the
+    // shoreline instead of driving out over the water.
+    const blocked =
+      isSea(nextX, nextZ, 2) ||
+      nextX < WORLD_BOUNDS.minX + 20 || nextX > WORLD_BOUNDS.maxX - 20 ||
+      nextZ < WORLD_BOUNDS.minZ + 20 || nextZ > WORLD_BOUNDS.maxZ - 20;
+    if (blocked) {
+      this.speed = 0;
+    } else {
+      this.vehiclePos.x = nextX;
+      this.vehiclePos.z = nextZ;
+      // Track total distance
       this.totalDistanceDriven += Math.abs(moveStep);
     }
 
-    // 5. Update Chhakaro 3D model transforms & tilt
-    this.chhakaro.group.position.set(this.vehiclePos.x, 0, this.vehiclePos.z);
-    this.chhakaro.group.rotation.y = this.vehicleRotation;
+    // 5. Update the vehicle model transforms
+    this.vehicle.group.position.set(this.vehiclePos.x, 0, this.vehiclePos.z);
+    this.vehicle.group.rotation.y = this.vehicleRotation;
 
-    // Three-wheeler body roll / tilt into corners
-    const bodyTilt = -(this.speed / 60) * this.steerAngle * 0.28;
-    this.chhakaro.group.rotation.z = bodyTilt;
-
-    // Update Chhakaro internal wheel spin, smoke, lights, hazard, puncture
-    this.chhakaro.update(
+    // Wheel spin, lights, hazard, puncture wobble (the model owns its own rotation.z)
+    this.vehicle.update(
       delta,
       this.speed,
       this.steerAngle,
@@ -664,45 +722,31 @@ export class GameWorld {
       this.healthState.hasPuncture
     );
 
-    // Update diesel engine audio
-    soundManager.updateEngineRPM(this.speed, isAccelerating);
+    // Body roll out of a corner (chhakaro / car) or lean into it (bike), on top of any
+    // puncture wobble the model applied.
+    const roll = THREE.MathUtils.clamp((this.speed / 60) * this.steerAngle * spec.roll, -0.45, 0.45);
+    this.vehicle.group.rotation.z += roll;
 
-    // Update UI speeds
-    if (this.onSpeedUpdate) {
-      const rpm = Math.floor(800 + (Math.abs(this.speed) / 70) * 2400);
+    // Engine audio — normalised so every vehicle sweeps the same pitch range
+    soundManager.updateEngineRPM(this.speed / k, isAccelerating);
+
+    // Update UI speeds (throttled — see SPEED_EMIT_MS)
+    const now = performance.now();
+    if (this.onSpeedUpdate && now - this.lastSpeedEmit >= SPEED_EMIT_MS) {
+      this.lastSpeedEmit = now;
+      const rpm = Math.floor(800 + (Math.abs(this.speed) / k / 70) * 2400);
       this.onSpeedUpdate(Math.round(this.speed), rpm);
     }
 
     this.onVehicleMove?.(this.vehiclePos.x, this.vehiclePos.z, this.vehicleRotation);
 
-    if (this.onHealthUpdate) {
+    if (this.onHealthUpdate && now - this.lastSlowEmit >= SLOW_EMIT_MS) {
       this.onHealthUpdate({ ...this.healthState });
     }
 
-    // 6. Check landmark proximity & facilities & encounters
+    // 6. Check landmark proximity & facilities
     this.checkLandmarkProximity();
     this.checkFacilityProximity();
-    this.checkRoadsideEncounters();
-  }
-
-  private checkRoadsideEncounters() {
-    let nearest: RoadsideEncounter | null = null;
-    let minDist = 35; // Interaction radius in meters
-
-    for (const enc of ROADSIDE_ENCOUNTERS) {
-      const d = Math.hypot(this.vehiclePos.x - enc.worldPosition.x, this.vehiclePos.z - enc.worldPosition.z);
-      if (d < minDist) {
-        minDist = d;
-        nearest = enc;
-      }
-    }
-
-    if (nearest !== this.nearbyEncounter) {
-      this.nearbyEncounter = nearest;
-      if (this.onEncounterApproach) {
-        this.onEncounterApproach(nearest);
-      }
-    }
   }
 
   private checkFacilityProximity() {
@@ -777,13 +821,14 @@ export class GameWorld {
   }
 
   private updateCamera(delta: number) {
-    const targetPos = this.chhakaro.group.position;
+    const targetPos = this.vehicle.group.position;
+    const spec = this.spec;
     const forward = new THREE.Vector3(-Math.sin(this.vehicleRotation), 0, -Math.cos(this.vehicleRotation));
 
     switch (this.currentCameraMode) {
       case 'hood': {
         // Driver POV (Right on handlebars looking through windshield)
-        const driverOffset = new THREE.Vector3(0, 1.45, -0.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.vehicleRotation);
+        const driverOffset = new THREE.Vector3(...spec.hoodCam).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.vehicleRotation);
         this.camera.position.copy(targetPos).add(driverOffset);
         const lookTarget = targetPos.clone().add(forward.clone().multiplyScalar(30)).add(new THREE.Vector3(0, 1.2, 0));
         this.camera.lookAt(lookTarget);
@@ -792,7 +837,7 @@ export class GameWorld {
 
       case 'passenger': {
         // View from rear decorated bench seat
-        const seatOffset = new THREE.Vector3(0.3, 1.6, 0.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.vehicleRotation);
+        const seatOffset = new THREE.Vector3(...spec.passengerCam).applyAxisAngle(new THREE.Vector3(0, 1, 0), this.vehicleRotation);
         this.camera.position.copy(targetPos).add(seatOffset);
         const lookTarget = targetPos.clone().add(forward.clone().multiplyScalar(20)).add(new THREE.Vector3(0, 1.0, 0));
         this.camera.lookAt(lookTarget);
@@ -825,8 +870,9 @@ export class GameWorld {
       case 'chase':
       default: {
         // Third person chase cam with speed zoom
-        const chaseDist = 7.5 + (Math.abs(this.speed) / 70) * 3.5;
-        const chaseHeight = 3.2 + (Math.abs(this.speed) / 70) * 1.0;
+        const speedFrac = Math.abs(this.speed) / spec.maxSpeed;
+        const chaseDist = spec.chaseDistance + speedFrac * 3.5;
+        const chaseHeight = spec.chaseHeight + speedFrac * 1.0;
         const desiredPos = targetPos
           .clone()
           .sub(forward.clone().multiplyScalar(chaseDist))
@@ -888,9 +934,10 @@ export class GameWorld {
 
     // Light up city windows / street lamps at night; bloom the coastal aarti glow at dusk
     this.environmentBuilder.setNightFactor(THREE.MathUtils.clamp(-timeState.sunElevation * 1.6 + 0.15, 0, 1));
-    if (this.onTimeOfDayUpdate) {
+    if (this.onTimeOfDayUpdate && nowMs - this.lastSlowEmit >= SLOW_EMIT_MS) {
       this.onTimeOfDayUpdate(timeState);
     }
+    if (nowMs - this.lastSlowEmit >= SLOW_EMIT_MS) this.lastSlowEmit = nowMs;
 
     this.updateCamera(delta);
 
@@ -921,9 +968,10 @@ export class GameWorld {
       this.environmentBuilder.trafficSignalBuilder.update(delta);
     }
 
-    // Update continuous environment animations (windmills, smoke, steam)
+    // Update continuous environment animations (windmills, smoke, steam) + running trains
     if (this.environmentBuilder) {
       this.environmentBuilder.update(delta);
+      this.environmentBuilder.railwaySystem.update(delta, this.vehiclePos);
     }
 
     // Toll boom-gate raise: payToll() sets tollBoomTweenT to 0; lerp rotation.z 0 -> -PI/2
@@ -950,6 +998,8 @@ export class GameWorld {
   public destroy() {
     cancelAnimationFrame(this.animationFrameId);
     window.removeEventListener('resize', this.onWindowResize);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
     soundManager.stopEngine();
     if (this.npcSystem) {
       this.npcSystem.destroy();

@@ -25,33 +25,34 @@ describe('persistence', () => {
   it('deep-merges partial nested objects onto defaults', () => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       version: SCHEMA_VERSION,
-      progress: { coins: 50, quizScore: { correct: 2 }, customization: { bodyColor: 123 } },
+      progress: { coins: 50, customization: { bodyColor: 123 } },
     }));
     const p = loadProgress();
-    expect(p.quizScore).toEqual({ correct: 2, totalAnswered: 0 });
     expect(p.customization.stickerText).toBe(DEFAULT_PROGRESS.customization.stickerText);
     expect(p.customization.bodyColor).toBe(123);
   });
 
-  it('round-trips stampMeta', () => {
-    const p = {
-      ...DEFAULT_PROGRESS,
-      visitedLocations: ['rajkot', 'dwarka'],
-      stampMeta: {
-        dwarka: { visitedAt: '2026-08-30T10:00:00.000Z', kilometersDriven: 42.5 },
-      },
-    };
-    saveProgress(p);
+  it('is on schema version 5', () => {
+    expect(SCHEMA_VERSION).toBe(5);
+  });
+
+  it('round-trips vehicleType and rejects unknown vehicles', () => {
+    expect(loadProgress().vehicleType).toBe('chhakaro');
+    saveProgress({ ...DEFAULT_PROGRESS, vehicleType: 'bike' });
     flushProgress();
-    expect(loadProgress()).toEqual(p);
+    expect(loadProgress().vehicleType).toBe('bike');
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SCHEMA_VERSION, progress: { vehicleType: 'jet' } }));
+    expect(loadProgress().vehicleType).toBe('chhakaro');
   });
 
-  it('defaults stampMeta to an empty object', () => {
-    expect(loadProgress().stampMeta).toEqual({});
-  });
-
-  it('is on schema version 4', () => {
-    expect(SCHEMA_VERSION).toBe(4);
+  it('drops fields from removed features (stamps, foods, quiz, Kaka)', () => {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({
+      version: 4,
+      progress: { coins: 9, stampMeta: { dwarka: {} }, discoveredFoods: ['x'], quizScore: {}, kakaMuted: true },
+    }));
+    const p = loadProgress() as unknown as Record<string, unknown>;
+    expect(p.coins).toBe(9);
+    for (const k of ['stampMeta', 'discoveredFoods', 'quizScore', 'kakaMuted']) expect(p[k]).toBeUndefined();
   });
 
   it('round-trips transmissionMode and expertMode with safe defaults', () => {
@@ -66,22 +67,6 @@ describe('persistence', () => {
   it('rejects a garbage transmissionMode', () => {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ version: SCHEMA_VERSION, progress: { transmissionMode: 'turbo' } }));
     expect(loadProgress().transmissionMode).toBe('auto');
-  });
-
-  it('round-trips kakaMuted and defaults it to false', () => {
-    expect(loadProgress().kakaMuted).toBe(false);
-    const p = { ...DEFAULT_PROGRESS, kakaMuted: true };
-    saveProgress(p);
-    flushProgress();
-    expect(loadProgress().kakaMuted).toBe(true);
-  });
-
-  it('ignores a non-boolean kakaMuted', () => {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({
-      version: SCHEMA_VERSION,
-      progress: { kakaMuted: 'yes' },
-    }));
-    expect(loadProgress().kakaMuted).toBe(false);
   });
 
   it('resets to defaults on schema version mismatch', () => {

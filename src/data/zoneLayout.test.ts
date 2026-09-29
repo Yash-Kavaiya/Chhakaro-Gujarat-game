@@ -12,13 +12,16 @@ import {
   MALLS,
   TOWERS,
   HOUSES,
+  ROADSIDE_STALLS,
+  BUS_STANDS,
+  BUS_STOPS,
 } from './roadsidePlacements';
-import { ROADSIDE_ENCOUNTERS } from './encounters';
+import { getResolvedRailSegments, RAIL_BED_WIDTH } from './railwayNetwork';
+import { WORLD_BOUNDS, GUJARAT_OUTLINE, isSea, pointInPolygon } from './gujaratGeography';
 import { RoadGeometryHelper } from '../world/RoadGeometryHelper';
 import { WaterOccupancy } from '../world/WaterOccupancy';
 
 const GAP = 80;
-const GROUND_HALF = 1800; // 3600x3600 base terrain plane
 
 interface Rect {
   minX: number;
@@ -154,10 +157,10 @@ describe('water bodies never touch roads, junctions or each other', () => {
   it('every water body sits on the terrain plane', () => {
     for (const w of water) {
       const r = rectOf(w, 10);
-      expect(r.minX).toBeGreaterThan(-GROUND_HALF);
-      expect(r.maxX).toBeLessThan(GROUND_HALF);
-      expect(r.minZ).toBeGreaterThan(-GROUND_HALF);
-      expect(r.maxZ).toBeLessThan(GROUND_HALF);
+      expect(r.minX).toBeGreaterThan(WORLD_BOUNDS.minX);
+      expect(r.maxX).toBeLessThan(WORLD_BOUNDS.maxX);
+      expect(r.minZ).toBeGreaterThan(WORLD_BOUNDS.minZ);
+      expect(r.maxZ).toBeLessThan(WORLD_BOUNDS.maxZ);
     }
   });
 
@@ -187,8 +190,11 @@ describe('roadside placements: props never sit on roads, junctions or water', ()
     ['MALLS', MALLS],
     ['TOWERS', TOWERS],
     ['HOUSES', HOUSES],
-    ['ENCOUNTER_STALLS', ROADSIDE_ENCOUNTERS.map((e) => ({ name: e.id, spot: e.worldPosition }))],
+    ['ROADSIDE_STALLS', ROADSIDE_STALLS],
+    ['BUS_STANDS', BUS_STANDS],
+    ['BUS_STOPS', BUS_STOPS],
   ];
+  const rails = getResolvedRailSegments();
 
   const WATER_CLEAR = 14; // water half-extents already carry margin; props keep this far out
 
@@ -215,15 +221,71 @@ describe('roadside placements: props never sit on roads, junctions or water', ()
           const dz = Math.max(w.z - w.sz / 2 - p.spot.z, 0, p.spot.z - (w.z + w.sz / 2));
           expect(Math.hypot(dx, dz), `${setName} "${p.name}" is inside water "${w.id}"`).toBeGreaterThanOrEqual(WATER_CLEAR);
         }
+
+        expect(isSea(p.spot.x, p.spot.z, 6), `${setName} "${p.name}" is in the sea`).toBe(false);
+
+        for (const r of rails) {
+          const d = RoadGeometryHelper.distanceToSegment(p.spot.x, p.spot.z, r.start.x, r.start.z, r.end.x, r.end.z);
+          expect(d, `${setName} "${p.name}" sits on the ${r.line.id} track`).toBeGreaterThanOrEqual(RAIL_BED_WIDTH);
+        }
       }
     });
   }
 
   it('toll plaza stands ON its expressway carriageway', () => {
-    const seg = segments.find((s) => s.corridor.id === 'nh48_ahmedabad_surat')!;
+    const seg = segments.find((s) => s.corridor.id === 'nh48_vadodara_surat')!;
     const d = RoadGeometryHelper.distanceToSegment(
       TOLL_PLAZA.spot.x, TOLL_PLAZA.spot.z, seg.start.x, seg.start.z, seg.end.x, seg.end.z
     );
     expect(d).toBeLessThan(1);
+  });
+});
+
+describe('Gujarat geography: roads, junctions and rails stay on land', () => {
+  const segments = getResolvedHighwaySegments();
+
+  it('every location sits inside the Gujarat outline, clear of the sea', () => {
+    for (const loc of GUJARAT_LOCATIONS) {
+      const { x, z } = loc.worldPosition;
+      expect(pointInPolygon(x, z, GUJARAT_OUTLINE), `${loc.id} is outside Gujarat`).toBe(true);
+      expect(isSea(x, z, 34), `junction ${loc.id} touches the sea`).toBe(false);
+    }
+  });
+
+  it('every highway corridor runs on land', () => {
+    for (const seg of segments) {
+      const steps = Math.ceil(seg.distance / 10);
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = seg.start.x + (seg.end.x - seg.start.x) * t;
+        const z = seg.start.z + (seg.end.z - seg.start.z) * t;
+        expect(isSea(x, z, seg.width / 2 + 4), `${seg.corridor.id} dips into the sea at t=${t.toFixed(2)}`).toBe(false);
+      }
+    }
+  });
+
+  it('every railway line runs on land, clear of rivers and junction plazas', () => {
+    const water = getWaterBodySpecs();
+    const rails = getResolvedRailSegments();
+    expect(rails.length).toBeGreaterThanOrEqual(8);
+    for (const r of rails) {
+      const steps = Math.ceil(r.distance / 10);
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const x = r.start.x + (r.end.x - r.start.x) * t;
+        const z = r.start.z + (r.end.z - r.start.z) * t;
+        expect(isSea(x, z, RAIL_BED_WIDTH), `${r.line.id} dips into the sea`).toBe(false);
+      }
+      for (const w of water) {
+        const d = segmentRectDistance(r.start.x, r.start.z, r.end.x, r.end.z, rectOf(w, 2));
+        expect(d, `${r.line.id} crosses water "${w.id}"`).toBeGreaterThanOrEqual(RAIL_BED_WIDTH);
+      }
+      for (const loc of GUJARAT_LOCATIONS) {
+        const d = RoadGeometryHelper.distanceToSegment(
+          loc.worldPosition.x, loc.worldPosition.z, r.start.x, r.start.z, r.end.x, r.end.z,
+        );
+        expect(d, `${r.line.id} cuts through junction ${loc.id}`).toBeGreaterThanOrEqual(34);
+      }
+    }
   });
 });

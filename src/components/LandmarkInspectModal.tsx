@@ -1,30 +1,19 @@
 import React from 'react';
 import { X, Volume2, CheckCircle } from 'lucide-react';
-import { LocationData, PassportStampRecord } from '../types';
+import { LocationData } from '../types';
 import { soundManager } from '../audio/SoundManager';
 
 /**
- * The History Card. Contract: App owns state; this is presentational — it gets the location,
- * whether it's visited, and (once visited) the stamp record, and calls back to log the visit
- * or open Kaka. The first-visit reward (coins + chime + notify) is App's `recordVisit`, not
- * this component's job. The one deliberate local side effect is the audio-guide button.
+ * The History Card. Contract: App owns state; this is presentational — it gets the location
+ * and whether it's visited, and calls back to log the visit. The one deliberate local side
+ * effect is the audio-guide button.
  */
 interface LandmarkInspectModalProps {
   isOpen: boolean;
   onClose: () => void;
   location: LocationData;
   isVisited: boolean;
-  stampRecord?: PassportStampRecord;
   onMarkVisited: (locId: string) => void;
-  onOpenKaka: () => void;
-}
-
-function formatStampDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${dd}/${mm}/${d.getFullYear()}`;
 }
 
 export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
@@ -32,15 +21,13 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
   onClose,
   location,
   isVisited,
-  stampRecord,
   onMarkVisited,
-  onOpenKaka,
 }) => {
   if (!isOpen) return null;
 
   const handlePlayVoiceGuide = () => {
     soundManager.speakGujaratiTextFallback(
-      `સ્વાગત છે ${location.nameGujarati} માં! ${location.history} અહીં આવ્યા પછી ${location.famousFood} ખાવાનું ભૂલતા નહીં!`,
+      `સ્વાગત છે ${location.nameGujarati} માં! ${location.history} ${location.story ?? ''}`,
     );
   };
 
@@ -78,7 +65,7 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
             {isVisited && (
               <span className="flex items-center gap-1 text-xs text-emerald-400 font-bold">
                 <CheckCircle className="w-3.5 h-3.5" />
-                <span>પાસપોર્ટમાં નોંધાયેલ</span>
+                <span>મુલાકાત લીધેલ</span>
               </span>
             )}
           </div>
@@ -114,29 +101,10 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
             </div>
           </div>
 
-          {/* Famous Food */}
-          <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-            <div className="text-xs text-amber-200">
-              <span className="font-bold">🍲 અહીંની સ્પેશિયલ વાનગી:</span> {location.famousFood}
-            </div>
-          </div>
-
-          {/* Your stamp — only once the zone is logged */}
-          {isVisited && (
-            <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 space-y-1.5">
-              <h4 className="text-xs font-black text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
-                <CheckCircle className="w-3.5 h-3.5" />
-                <span>તમારો સ્ટેમ્પ</span>
-              </h4>
-              {stampRecord && (
-                <div className="text-[11px] text-emerald-200/90 font-medium flex flex-wrap gap-x-4 gap-y-0.5">
-                  <span>📅 {formatStampDate(stampRecord.visitedAt)}</span>
-                  <span>🛣️ {stampRecord.kilometersDriven.toFixed(1)} km</span>
-                </div>
-              )}
-              {location.passportStory && (
-                <p className="text-xs text-slate-300 leading-relaxed pt-1">{location.passportStory}</p>
-              )}
+          {/* Why this place matters */}
+          {location.story && (
+            <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40">
+              <p className="text-xs text-slate-200 leading-relaxed">{location.story}</p>
             </div>
           )}
         </div>
@@ -152,19 +120,10 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
             <span>ઓડિયો ગાઈડ સાંભળો (Voice)</span>
           </button>
 
-          <button
-            id="ask-kaka-btn"
-            onClick={onOpenKaka}
-            className="bg-slate-800 hover:bg-slate-700 text-amber-200 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors"
-          >
-            <span className="text-base">👳🏽‍♂️</span>
-            <span>કાનજી કાકાને પૂછો</span>
-          </button>
-
           {isVisited ? (
-            <div className="sm:col-span-2 bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2">
+            <div className="bg-emerald-900/40 border border-emerald-500/40 text-emerald-300 py-3 rounded-2xl font-black text-xs flex items-center justify-center gap-2">
               <CheckCircle className="w-4 h-4" />
-              <span>✓ પાસપોર્ટમાં નોંધાયેલ</span>
+              <span>✓ મુલાકાત લીધેલ</span>
             </div>
           ) : (
             <button
@@ -173,7 +132,7 @@ export const LandmarkInspectModal: React.FC<LandmarkInspectModalProps> = ({
                 onMarkVisited(location.id);
                 onClose();
               }}
-              className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-3 rounded-2xl font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-98"
+              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 py-3 rounded-2xl font-black text-xs shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-98"
             >
               <CheckCircle className="w-4 h-4" />
               <span>✓ મુલાકાત નોંધો</span>

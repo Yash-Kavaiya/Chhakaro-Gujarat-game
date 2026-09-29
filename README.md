@@ -1,19 +1,21 @@
 # છકડામાં ગુજરાત — Chhakaro Gujarat 3D
 
-A browser game where you drive an iconic Gujarati **chhakaro** (three-wheeler) on a tour of
-Gujarat. Sixteen real landmarks form the map — Dwarka, Somnath, Gir, the Rann of Kutch, the
-Statue of Unity, Rani ki Vav and more — each with its own scenery, food, souvenirs and a
-cultural quiz. "Kanji Kaka", an AI tour guide, narrates the trip in Kathiyawadi Gujarati
-(backed by Gemini, with a local scripted fallback so the game is fully playable with no API
-key). Progress — coins, reputation, passport stamps, achievements, discovered foods,
-customisation — persists in `localStorage` across sessions. Built with React 19, Vite 6,
-Three.js and an Express server that also proxies the Gemini calls.
+A browser game where you drive a Gujarati **chhakaro** (three-wheeler), a **car** or a
+**bike** across a Gujarat-shaped world. Every trip starts in the capital, **Gandhinagar**.
+Twenty real places form the map — Dwarka, Porbandar, Somnath, Gir, the Rann of Kutch,
+Dholavira, the Statue of Unity, Rani ki Vav, **Dholera Smart City and its new airport**,
+Ahmedabad's SVPIA airport and more — linked by real highway routes (NH-48, NH-27, NE-1, the
+Ahmedabad–Dholera expressway…), Indian Railways lines with stations and running trains, and
+GSRTC ST bus stations and stops. The terrain follows the real state outline: the Arabian Sea
+with the Gulfs of Kutch and Khambhat, the white Great and Little Rann, beaches and the state
+border. All Gujarati text uses the **Hind Vadodara** typeface. Progress — visited places,
+missions, reputation, chosen vehicle and customisation — persists in `localStorage`. Built
+with React 19, Vite 6, Three.js and an Express server that proxies Gemini text-to-speech.
 
 ## Prerequisites
 
 - [Bun](https://bun.sh) (package manager + script runner)
-- A modern browser with WebGL. Microphone + `SpeechRecognition` are optional (voice input to
-  Kanji Kaka); the app degrades gracefully without them.
+- A modern browser with WebGL.
 
 ## Setup
 
@@ -53,7 +55,7 @@ Declared in `.env.example`. Both are optional for local development.
 
 | Variable | Purpose |
 | --- | --- |
-| `GEMINI_API_KEY` | Enables the live Gemini calls in `server.ts`. **Optional in dev** — with no key, `/api/gemini/guide` returns a local scripted Kathiyawadi-Gujarati response and `/api/gemini/tts` tells the client to use the browser's Web Speech API, so gameplay and narration are unchanged. In production it is injected automatically by Google AI Studio from the user's configured secret. |
+| `GEMINI_API_KEY` | Enables the live Gemini calls in `server.ts`. **Optional in dev** — with no key, `/api/gemini/tts` tells the client to use the browser's Web Speech API, so gameplay and narration are unchanged. In production it is injected automatically by Google AI Studio from the user's configured secret. |
 | `APP_URL` | The public URL the applet is hosted at. Injected by AI Studio at runtime with the Cloud Run service URL; reserved for self-referential links. Not read by the app code today. |
 
 ## Deployment
@@ -71,32 +73,33 @@ src/main.tsx            React entry — mounts <App/>
 src/App.tsx             Owns ALL game state (economy, progression, vehicle health, modals).
                         Initialises state from the persisted save, writes it back on change,
                         and bridges the Three.js world callbacks into React.
-src/world/GameWorld.ts  Orchestrates the Three.js systems: chhakaro model + driving physics,
-                        camera modes, time-of-day, traffic & NPCs, environment building,
-                        landmark/facility proximity. Supporting modules alongside it:
-                        ChhakaroModel, EnvironmentBuilder, NPCSystem, TrafficSystem,
-                        TimeOfDaySystem, RoadSignBuilder.
+src/world/GameWorld.ts  Orchestrates the Three.js systems: vehicle model + per-vehicle driving
+                        physics (vehicles/: Chhakaro, Car, Bike + VEHICLE_SPECS), sea/edge
+                        collision, camera modes, time-of-day, traffic & NPCs, environment
+                        building, landmark/facility proximity. Supporting modules alongside it:
+                        EnvironmentBuilder, GujaratTerrain (state-shaped land/sea/Rann),
+                        RailwaySystem (tracks, stations, trains), BusTransitBuilder (ST
+                        depots + stops), NPCSystem, TrafficSystem, TimeOfDaySystem,
+                        RoadSignBuilder, landmarks/*.
 src/state/              Pure, unit-tested game logic (each file has a sibling .test.ts):
                         - persistence.ts     versioned localStorage save
                                              (key "chhakaro-gujarat-save-v1"), debounced
                                              ~500ms writes, flush-on-unload, shallow-merge
                                              onto DEFAULT_PROGRESS, clearProgress() for reset.
                                              Vehicle sim state is deliberately NOT persisted.
-                        - achievements.ts    evaluateAchievements(input) → unlocked id set.
                         - missionMatching.ts isMissionComplete(mission, arrivedLocationId).
-src/components/         HUD + modals: HUD, KanjiKakaGuide, GujaratMapModal, PassportModal,
-                        FoodPassportModal, GarageModal, PassengerMissionModal,
-                        SouvenirShopModal, QuizModal, PhotoModeModal, LandmarkInspectModal,
-                        StartScreen, MobileControls, InCarRadio, SpeedometerGauge.
-src/data/               Static Gujarati content: locations.ts (16 locations + foods +
-                        achievement definitions), missions.ts, souvenirs.ts, quizzes.ts,
-                        radioStations.ts. dataIntegrity.test.ts guards the id cross-references.
+src/components/         HUD + modals: HUD, GujaratMapModal + MiniMap (shared GujaratMapSvg),
+                        GarageModal (incl. VehiclePicker), PassengerMissionModal,
+                        PhotoModeModal, LandmarkInspectModal, StartScreen, MobileControls,
+                        SpeedometerGauge.
+src/data/               Static content: locations.ts (20 places, START_LOCATION = Gandhinagar),
+                        highwayNetwork.ts, railwayNetwork.ts, gujaratGeography.ts (coast,
+                        gulfs, Rann, border), roadsidePlacements.ts, waterBodies.ts,
+                        missions.ts. zoneLayout.test.ts proves roads, rails and props stay
+                        on land and clear of water; dataIntegrity.test.ts guards id refs.
 src/audio/SoundManager  Web Audio procedural engine / horn / temple bell / chime + Web Speech
                         Gujarati TTS fallback.
-server.ts               Express server. Two Gemini endpoints, each with a local fallback:
-                        - POST /api/gemini/guide  Kanji Kaka chat. Model fallback chain
-                          gemini-3.7-flash → gemini-3.6-flash → gemini-3.1-flash-lite, then
-                          a local scripted Gujarati response (generateSmartKakaFallback).
+server.ts               Express server:
                         - POST /api/gemini/tts    gemini-3.1-flash-tts-preview (voice "Puck");
                           returns { audio: null, useFallback: true } on no-key/failure.
                         - GET  /api/health
@@ -105,13 +108,13 @@ server.ts               Express server. Two Gemini endpoints, each with a local 
 
 ## Testing
 
-`bun run test` runs Vitest (jsdom, `src/**/*.test.ts`). Current suite: 5 files, 18 tests —
-`persistence`, `achievements`, `missionMatching`, `dataIntegrity`, and the `SoundManager` API
-surface. Keep `bun run lint`, `bun run build` and `bun run test` all green before committing.
+`bun run test` runs Vitest (jsdom, `src/**/*.test.ts`) — 11 files, 93 tests, including the
+geography/layout guarantees in `zoneLayout.test.ts`. Keep `bun run lint`, `bun run build` and `bun run test` all green before committing.
 
 ## Controls
 
 - **W / A / S / D** or arrow keys — drive
 - **C** — cycle camera (chase, hood, passenger, cinematic, drone)
-- **M** — map, **P** — passport, **E** — inspect a nearby landmark
+- **M** — map, **E** — inspect a nearby landmark, **H** — horn, **L** — headlights
+- Switch between chhakaro, car and bike on the start screen or in the garage
 - On-screen pedals/steering are shown on touch devices.

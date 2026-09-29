@@ -47,7 +47,7 @@ export function nearestUnvisited(
 }
 
 /** { visited, total, pct } for the whole map. Pure. */
-export function passportProgress(
+export function explorationProgress(
   locations: LocationData[],
   visitedIds: string[],
 ): { visited: number; total: number; pct: number } {

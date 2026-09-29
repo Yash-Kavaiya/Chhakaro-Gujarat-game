@@ -34,22 +34,22 @@ const ZONE_WATER: OffsetSpec[] = [
   // Somnath — sea south of the shore wall (all three corridors exit northward). Rendered by
   // the somnath landmark module itself.
   { id: 'sea_somnath', anchorId: 'somnath', dx: 0, dz: 86, sx: 200, sz: 100, externallyRendered: true, label: 'અરબી સમુદ્ર' },
-  // Ahmedabad — Sabarmati as a narrow N-S strip EAST of the junction. The Rajkot expressway
-  // sweeps diagonally through the whole western quadrant, so a west river can never clear it;
-  // the eastern wedge (between the Vadodara and Gandhinagar corridors) is road-free.
-  { id: 'sabarmati_ahmedabad', anchorId: 'ahmedabad', dx: 130, dz: 0, sx: 22, sz: 150, bridge: 'pedestrian', label: 'સાબરમતી નદી' },
-  // Surat — Tapi as an E-W strip south of the junction; the Saputara ghat road (the only
-  // corridor heading +Z) passes ≥ 40 m east of the strip's end.
-  { id: 'tapi_surat', anchorId: 'surat', dx: 0, dz: 110, sx: 150, sz: 22, bridge: 'cable', label: 'તાપી નદી' },
+  // Ahmedabad — Sabarmati as a narrow N-S strip WEST of the old city (as in reality), in the
+  // road-free wedge between the Patan corridor (NNW) and the Rajkot expressway (WSW).
+  { id: 'sabarmati_ahmedabad', anchorId: 'ahmedabad', dx: -120, dz: -110, sx: 22, sz: 150, bridge: 'pedestrian', label: 'સાબરમતી નદી' },
+  // Surat — Tapi flowing west into the Gulf of Khambhat, clear of the NH-48 (north) and the
+  // Dandi road (south-south-west).
+  { id: 'tapi_surat', anchorId: 'surat', dx: -130, dz: 30, sx: 140, sz: 22, bridge: 'cable', label: 'તાપી નદી' },
   // Statue of Unity — Narmada backwater north of the monument, rendered by the landmark
   // module itself; registered here for collision + tests.
   { id: 'narmada_sou', anchorId: 'statue_of_unity', dx: 0, dz: -125, sx: 180, sz: 70, externallyRendered: true, label: 'નર્મદા નદી' },
   // Saputara — hill lake in the eastern saddle, clear of both ghat roads and the two hills.
   { id: 'lake_saputara', anchorId: 'saputara', dx: 72, dz: 26, sx: 28, sz: 28, label: 'સાપુતારા તળાવ' },
-  // Vadodara — Sursagar square lake with the Shiva idol, rendered by the zone builder.
-  { id: 'lake_vadodara', anchorId: 'vadodara', dx: 0, dz: 85, sx: 38, sz: 28, externallyRendered: true, label: 'સુરસાગર' },
-  // Dandi — Arabian Sea coast behind the memorial (only the Surat road exits north-east).
-  { id: 'sea_dandi', anchorId: 'dandi', dx: 0, dz: -95, sx: 160, sz: 60, label: 'અરબી સમુદ્ર' },
+  // Vadodara — Sursagar square lake with the Shiva idol south-west of the palace, rendered by
+  // the zone builder (clear of the NH-48 heading due south).
+  { id: 'lake_vadodara', anchorId: 'vadodara', dx: -85, dz: 85, sx: 38, sz: 28, externallyRendered: true, label: 'સુરસાગર' },
+  // Dandi — Arabian Sea surf west of the memorial (the Surat road arrives from the north).
+  { id: 'sea_dandi', anchorId: 'dandi', dx: -110, dz: 0, sx: 60, sz: 180, label: 'અરબી સમુદ્ર' },
   // Dholavira — Harappan reservoir tank beside the citadel, rendered by the zone builder.
   { id: 'tank_dholavira', anchorId: 'dholavira', dx: 44, dz: -34, sx: 28, sz: 18, externallyRendered: true, label: 'હડપ્પન જળાશય' },
 ];

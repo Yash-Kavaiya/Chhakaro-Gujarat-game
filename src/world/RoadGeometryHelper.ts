@@ -1,5 +1,6 @@
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { getResolvedHighwaySegments, ResolvedHighwaySegment } from '../data/highwayNetwork';
+import { distanceToNearestRail, RAIL_BED_WIDTH } from '../data/railwayNetwork';
 
 export class RoadGeometryHelper {
   private static segmentsCache: ResolvedHighwaySegment[] | null = null;
@@ -45,7 +46,8 @@ export class RoadGeometryHelper {
   }
 
   /**
-   * Returns true if point (x, z) falls within the road surface or within clearanceMargin of any road or junction
+   * Returns true if point (x, z) falls within the road surface or within clearanceMargin of any
+   * road, junction or railway track.
    */
   public static isInsideRoadOrClearance(x: number, z: number, clearanceMargin: number = 10.0): boolean {
     // 1. Check all highway segments
@@ -58,7 +60,12 @@ export class RoadGeometryHelper {
       }
     }
 
-    // 2. Check all city junction roundabouts / hubs (radius ~26m)
+    // 2. Railway tracks (ballast bed) run parallel to several corridors
+    if (distanceToNearestRail(x, z) < RAIL_BED_WIDTH / 2 + clearanceMargin) {
+      return true;
+    }
+
+    // 3. Check all city junction roundabouts / hubs (radius ~26m)
     for (const loc of GUJARAT_LOCATIONS) {
       const jx = loc.worldPosition.x;
       const jz = loc.worldPosition.z;

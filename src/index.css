@@ -1,1 +1,13 @@
 @import "tailwindcss";
+
+/* Hind Vadodara is the single Gujarati typeface for the whole game — UI text (sans and the
+   old serif accents) and every canvas-drawn 3D signboard. Loaded in index.html. */
+@theme {
+  --font-sans: "Hind Vadodara", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Hind Vadodara", ui-sans-serif, system-ui, sans-serif;
+}
+
+html,
+body {
+  font-family: "Hind Vadodara", ui-sans-serif, system-ui, sans-serif;
+}

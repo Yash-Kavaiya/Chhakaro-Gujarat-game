@@ -148,7 +148,7 @@ export class RoadSignBuilder {
       toLoc.nameGujarati,
       toLoc.nameEnglish,
       distToNext2,
-      toLoc.famousFood,
+      `${toLoc.regionNameGujarati}: ${toLoc.culturalHighlights[0] ?? toLoc.landmarks[0] ?? toLoc.tagline}`,
       highwayCode
     );
 
@@ -270,14 +270,14 @@ export class RoadSignBuilder {
     ctx.lineWidth = 4;
     ctx.strokeRect(40, 40, 220, 64);
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = 'bold 36px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(highwayCode, 150, 72);
 
     // Route Sub-heading
     ctx.fillStyle = '#fef08a';
-    ctx.font = 'bold 30px sans-serif';
+    ctx.font = 'bold 30px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText('ગુજરાત સ્ટેટ હાઇવે ઓથોરિટી', 960, 72);
 
@@ -295,23 +295,23 @@ export class RoadSignBuilder {
     ctx.textBaseline = 'middle';
 
     // Straight Ahead Arrow
-    ctx.font = 'bold 64px sans-serif';
+    ctx.font = 'bold 64px "Hind Vadodara", sans-serif';
     ctx.fillStyle = '#38bdf8';
     ctx.fillText('↑', 50, 200);
 
     // Gujarati Name
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 52px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 52px "Hind Vadodara", sans-serif';
     ctx.fillText(nextCityGujarati, 130, 190);
 
     // English Name
     ctx.fillStyle = '#cbd5e1';
-    ctx.font = 'bold 32px sans-serif';
+    ctx.font = 'bold 32px "Hind Vadodara", sans-serif';
     ctx.fillText(nextCityEnglish, 130, 240);
 
     // Distance in KM
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 58px sans-serif';
+    ctx.font = 'bold 58px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(`${distNextKm} KM`, 960, 205);
 
@@ -326,15 +326,15 @@ export class RoadSignBuilder {
     // Secondary / Reverse Destination
     ctx.textAlign = 'left';
     ctx.fillStyle = '#f87171';
-    ctx.font = 'bold 54px sans-serif';
+    ctx.font = 'bold 54px "Hind Vadodara", sans-serif';
     ctx.fillText('←', 50, 370);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 44px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 44px "Hind Vadodara", sans-serif';
     ctx.fillText(`પાછળ: ${prevCityGujarati}`, 130, 370);
 
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 48px sans-serif';
+    ctx.font = 'bold 48px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(`${distPrevKm} KM`, 960, 370);
 
@@ -342,7 +342,7 @@ export class RoadSignBuilder {
     ctx.fillStyle = '#065f46';
     ctx.fillRect(40, 428, 944, 52);
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 24px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('નજર હટી દુર્ઘટના ઘટી — ધીમે ચલાવો!', 512, 454);
 
@@ -376,7 +376,7 @@ export class RoadSignBuilder {
     nextCityGujarati: string,
     nextCityEnglish: string,
     distNextKm: number,
-    famousFood: string,
+    highlight: string,
     highwayCode: string
   ) {
     const group = new THREE.Group();
@@ -446,23 +446,23 @@ export class RoadSignBuilder {
     ctx.fillStyle = '#f59e0b';
     ctx.fillRect(36, 36, 180, 60);
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 34px sans-serif';
+    ctx.font = 'bold 34px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(highwayCode, 126, 66);
 
     // Destination & Distance in Gujarati & English
     ctx.fillStyle = '#38bdf8';
-    ctx.font = 'bold 60px sans-serif';
+    ctx.font = 'bold 60px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('↑ સીધા આગળ', 240, 70);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 62px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 62px "Hind Vadodara", sans-serif';
     ctx.fillText(nextCityGujarati, 560, 68);
 
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 68px sans-serif';
+    ctx.font = 'bold 68px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(`${distNextKm} KM`, 1230, 70);
 
@@ -474,14 +474,14 @@ export class RoadSignBuilder {
     ctx.lineTo(1244, 124);
     ctx.stroke();
 
-    // Food & Culture Hint Ribbon on Overhead Sign
+    // Culture / landmark hint ribbon on the overhead sign
     ctx.textAlign = 'left';
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 36px "Noto Sans Gujarati", sans-serif';
-    ctx.fillText(`🍽️ પ્રખ્યાત વાનગી: ${famousFood}`, 50, 185);
+    ctx.font = 'bold 36px "Hind Vadodara", sans-serif';
+    ctx.fillText(`🏛️ ${highlight}`, 50, 185);
 
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold 28px "Hind Vadodara", sans-serif';
     ctx.fillText(`Keep Left For Slow Moving Vehicles / Chhakado | નિયંત્રિત ગતિમાં ચલાવો`, 50, 245);
 
     // Solar Powered Blinking Hazard Lights on Top of Gantry
@@ -491,7 +491,7 @@ export class RoadSignBuilder {
     ctx.fill();
 
     ctx.fillStyle = '#f59e0b';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 24px "Hind Vadodara", sans-serif';
     ctx.fillText('ગુજરાત પર્યટન નિગમ (GUJARAT TOURISM) — ખુશ્બૂ ગુજરાત કી', 90, 305);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -558,30 +558,30 @@ export class RoadSignBuilder {
 
     // Cultural Heading
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 36px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 36px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`🚩 પવિત્ર ગુજરાત દર્શન — આગળ ${loc.nameGujarati}`, 512, 70);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 50px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 50px "Hind Vadodara", sans-serif';
     ctx.fillText(`${loc.nameGujarati} માત્ર ${distKm} KM દૂર છે!`, 512, 145);
 
     ctx.fillStyle = '#93c5fd';
-    ctx.font = 'italic 30px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'italic 30px "Hind Vadodara", sans-serif';
     ctx.fillText(`"${loc.tagline.slice(0, 50)}..."`, 512, 215);
 
     // Road Safety Advice in Gujarati
     ctx.fillStyle = '#fef08a';
     ctx.fillRect(40, 270, 944, 90);
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 32px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 32px "Hind Vadodara", sans-serif';
     ctx.fillText(`⚠️ ધીમે ચલાવો! આગળ ${loc.culturalHighlights[0] || 'મુખ્ય વિસ્તાર'} આવે છે`, 512, 315);
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 24px "Hind Vadodara", sans-serif';
     ctx.fillText(`Speed Limit: 40 km/h | Enjoy Safe Saurashtra & Gujarat Travel`, 512, 345);
 
     // Bottom Tag
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = 'bold 22px sans-serif';
+    ctx.font = 'bold 22px "Hind Vadodara", sans-serif';
     ctx.fillText(`HIGHWAY PATROL & AMBULANCE HELPLINE: 108 / 1033 | ${highwayCode}`, 512, 430);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -642,7 +642,7 @@ export class RoadSignBuilder {
     ctx.fillRect(0, 0, 256, 130);
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 36px sans-serif';
+    ctx.font = 'bold 36px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(highwayCode.replace('-', ' '), 128, 65);
@@ -653,18 +653,18 @@ export class RoadSignBuilder {
 
     // City Name in Gujarati
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 34px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 34px "Hind Vadodara", sans-serif';
     // Shorten if long
     const cleanCity = destinationName.split(' ')[0].replace('(', '');
     ctx.fillText(cleanCity, 128, 195);
 
     // KM Distance
     ctx.fillStyle = '#b91c1c';
-    ctx.font = 'bold 56px sans-serif';
+    ctx.font = 'bold 56px "Hind Vadodara", sans-serif';
     ctx.fillText(`${kmDistance}`, 128, 275);
 
     ctx.fillStyle = '#475569';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 24px "Hind Vadodara", sans-serif';
     ctx.fillText('KM', 128, 335);
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -711,25 +711,25 @@ export class RoadSignBuilder {
 
     // Welcome Greeting
     ctx.fillStyle = '#fde047';
-    ctx.font = 'bold 40px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 40px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(`🙏 પધારો! ${loc.nameGujarati} માં તમારું હાર્દિક સ્વાગત છે 🙏`, 512, 70);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 46px sans-serif';
+    ctx.font = 'bold 46px "Hind Vadodara", sans-serif';
     ctx.fillText(`WELCOME TO ${loc.nameEnglish.toUpperCase()}`, 512, 140);
 
     // Culture Tagline
     ctx.fillStyle = '#fed7aa';
-    ctx.font = 'bold 28px "Noto Sans Gujarati", sans-serif';
+    ctx.font = 'bold 28px "Hind Vadodara", sans-serif';
     ctx.fillText(`${loc.tagline}`, 512, 210);
 
-    // Food Ribbon
+    // Landmark ribbon
     ctx.fillStyle = '#f97316';
     ctx.fillRect(40, 260, 944, 60);
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 30px "Noto Sans Gujarati", sans-serif';
-    ctx.fillText(`😋 અસલ સ્વાદ: ${loc.famousFood}`, 512, 298);
+    ctx.font = 'bold 30px "Hind Vadodara", sans-serif';
+    ctx.fillText(`🏛️ જોવાલાયક: ${loc.landmarks.slice(0, 2).join(' • ')}`, 512, 298);
 
     const texture = new THREE.CanvasTexture(canvas);
     const boardMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });

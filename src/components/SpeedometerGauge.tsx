@@ -11,6 +11,10 @@ interface SpeedometerGaugeProps {
   isHeadlightOn?: boolean;
   gear: string;
   transmissionMode: TransmissionMode;
+  /** Dial full-scale in km/h (80 for the chhakaro, 120 for the car, 100 for the bike). */
+  maxSpeed?: number;
+  /** Short label printed on the dial hub. */
+  dialLabel?: string;
 }
 
 export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
@@ -21,9 +25,10 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
   isHeadlightOn = true,
   gear,
   transmissionMode,
+  maxSpeed = 80,
+  dialLabel = 'CHHAKDO',
 }) => {
   const currentSpeed = Math.abs(speed);
-  const maxSpeed = 80;
   const maxRpm = 3500;
 
   // Speed angle calculation (-135deg to +135deg -> 270 degree sweep)
@@ -44,8 +49,9 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
 
   const isWildlifeLimited = currentLocation.id === 'gir' && currentSpeed >= 24;
 
-  // Generate tick marks (0, 10, 20, 30, 40, 50, 60, 70, 80)
-  const ticks = [0, 10, 20, 30, 40, 50, 60, 70, 80];
+  // Tick marks every tenth of the dial; every other one is numbered
+  const step = maxSpeed / 8;
+  const ticks = Array.from({ length: 9 }, (_, i) => Math.round(i * step));
 
   return (
     <div
@@ -112,7 +118,7 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           {ticks.map((val) => {
             const angle = -135 + (val / maxSpeed) * 270;
-            const isMajor = val % 20 === 0;
+            const isMajor = ticks.indexOf(val) % 2 === 0;
             return (
               <div
                 key={val}
@@ -139,7 +145,7 @@ export const SpeedometerGauge: React.FC<SpeedometerGaugeProps> = ({
 
         {/* Inner Hub Background with subtle vintage texture */}
         <div className="absolute w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-b from-slate-900 via-slate-950 to-black border border-amber-500/30 flex flex-col items-center justify-center shadow-inner">
-          <span className="text-[7px] tracking-widest text-amber-400/80 font-black uppercase">CHHAKDO</span>
+          <span className="text-[7px] tracking-widest text-amber-400/80 font-black uppercase">{dialLabel}</span>
           <span className="text-[9px] sm:text-[10px] font-black text-amber-300 font-mono">
             {Math.round(currentSpeed)}
           </span>

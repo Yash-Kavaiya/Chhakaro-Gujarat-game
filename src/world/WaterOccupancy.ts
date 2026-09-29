@@ -1,4 +1,5 @@
 import { RoadGeometryHelper } from './RoadGeometryHelper';
+import { isSea } from '../data/gujaratGeography';
 
 /** Axis-aligned water rectangle in world XZ. */
 export interface WaterRect {
@@ -39,7 +40,8 @@ export class WaterOccupancy {
         return true;
       }
     }
-    return false;
+    // The Arabian Sea and its gulfs are a polygon rather than a registered rectangle.
+    return isSea(x, z, margin);
   }
 
   static getRects(): readonly WaterRect[] {

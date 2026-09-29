@@ -21,18 +21,29 @@ import {
   MALLS,
   TOWERS,
   HOUSES,
+  ROADSIDE_STALLS,
 } from '../data/roadsidePlacements';
-import { ROADSIDE_ENCOUNTERS } from '../data/encounters';
+import { buildGujaratTerrain } from './GujaratTerrain';
+import { buildBusTransit } from './BusTransitBuilder';
+import { RailwaySystem } from './RailwaySystem';
 import * as raniKiVav from './landmarks/raniKiVav';
 import * as somnath from './landmarks/somnath';
 import * as girGate from './landmarks/girGate';
 import * as whiteRann from './landmarks/whiteRann';
 import * as statueOfUnity from './landmarks/statueOfUnity';
+import * as dholera from './landmarks/dholera';
+import * as porbandar from './landmarks/porbandar';
+
+// Shared unit geometries for the thousands of roadside trees — each tree scales its meshes
+// instead of allocating its own cylinder + dodecahedron buffers.
+const TREE_TRUNK_GEO = new THREE.CylinderGeometry(0.35, 0.5, 3.5, 8);
+const TREE_FOLIAGE_GEO = new THREE.DodecahedronGeometry(2.5);
 
 export class EnvironmentBuilder {
   private scene: THREE.Scene;
   public roadSignBuilder: RoadSignBuilder;
   public trafficSignalBuilder: TrafficSignalBuilder;
+  public railwaySystem: RailwaySystem;
 
   // Reusable materials
   private roadMat: THREE.MeshStandardMaterial;
@@ -89,6 +100,7 @@ export class EnvironmentBuilder {
     this.scene = scene;
     this.roadSignBuilder = new RoadSignBuilder(scene);
     this.trafficSignalBuilder = new TrafficSignalBuilder(scene);
+    this.railwaySystem = new RailwaySystem(scene);
 
     this.roadMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.88 });
     this.roadMarkingMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
@@ -121,14 +133,9 @@ export class EnvironmentBuilder {
    * Build complete Gujarat map environment connecting all locations
    */
   public buildFullWorld(locations: LocationData[]) {
-    // 1. Base Terrain Ground Plane — sized to cover every zone (largest extents:
-    //    Saputara x≈1534, Dholavira z≈-890) plus their landmark footprints.
-    const groundGeo = new THREE.PlaneGeometry(3600, 3600, 60, 60);
-    const ground = new THREE.Mesh(groundGeo, this.grassMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.05;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+    // 1. Terrain shaped like Gujarat: state land mass, Arabian Sea + both gulfs, the Rann,
+    //    beaches and the neighbouring states beyond the border (see gujaratGeography.ts).
+    buildGujaratTerrain(this.scene);
 
     WaterOccupancy.clear();
     PlacementHelper.resetPlacements();
@@ -162,6 +169,12 @@ export class EnvironmentBuilder {
 
     // 8. Night infrastructure: lit city windows, highway street lamps, coastal aarti glow (all dark by day)
     this.buildNightAtmosphere(locations);
+
+    // 9. Indian Railways lines with stations and running trains
+    this.railwaySystem.build();
+
+    // 10. GSRTC ST bus stations and roadside bus-stop shelters
+    buildBusTransit(this.scene);
   }
 
   /**
@@ -188,7 +201,7 @@ export class EnvironmentBuilder {
     this.registerNightEmissive(windowMat, 0.9);
     const windowGeo = new THREE.BoxGeometry(1.2, 1.6, 0.15);
 
-    for (const id of ['rajkot', 'ahmedabad', 'gandhinagar', 'surat', 'vadodara', 'junagadh']) {
+    for (const id of ['rajkot', 'ahmedabad', 'gandhinagar', 'surat', 'vadodara', 'junagadh', 'dholera', 'porbandar']) {
       const loc = locMap.get(id);
       if (!loc) continue;
       const { x, z } = loc.worldPosition;
@@ -457,6 +470,10 @@ export class EnvironmentBuilder {
     const roadGroup = new THREE.Group();
     const studMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, roughness: 0.2, metalness: 0.9 });
     const whiteStudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2, metalness: 0.85 });
+    // Cat's-eye studs number in the thousands across the network: collect their positions
+    // and draw them as two InstancedMeshes (one draw call each) instead of one Mesh apiece.
+    const centerStuds: number[] = [];
+    const edgeStuds: number[] = [];
     const rumbleBarTexture = RoadTextureGenerator.getRumbleBarTexture();
     const rumbleBarMat = new THREE.MeshBasicMaterial({ map: rumbleBarTexture, transparent: true });
 
@@ -524,19 +541,12 @@ export class EnvironmentBuilder {
         const cz = start.z + dz * t;
 
         // Center line amber/yellow cat's eye stud
-        const centerStud = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.07, 0.18), studMat);
-        centerStud.position.set(cx, 0.065, cz);
-        roadGroup.add(centerStud);
+        centerStuds.push(cx, 0.065, cz);
 
         // Left & Right shoulder line white cat's eye studs
         if (s % 2 === 0) {
-          const leftStud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.16), whiteStudMat);
-          leftStud.position.set(cx - normX * edgeOffset, 0.062, cz - normZ * edgeOffset);
-          roadGroup.add(leftStud);
-
-          const rightStud = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.06, 0.16), whiteStudMat);
-          rightStud.position.set(cx + normX * edgeOffset, 0.062, cz + normZ * edgeOffset);
-          roadGroup.add(rightStud);
+          edgeStuds.push(cx - normX * edgeOffset, 0.062, cz - normZ * edgeOffset);
+          edgeStuds.push(cx + normX * edgeOffset, 0.062, cz + normZ * edgeOffset);
         }
       }
 
@@ -559,6 +569,20 @@ export class EnvironmentBuilder {
         roadGroup.add(rumble2);
       }
     }
+
+    const instanced = (coords: number[], geo: THREE.BufferGeometry, mat: THREE.Material) => {
+      const count = coords.length / 3;
+      const mesh = new THREE.InstancedMesh(geo, mat, count);
+      const m = new THREE.Matrix4();
+      for (let i = 0; i < count; i++) {
+        m.makeTranslation(coords[i * 3], coords[i * 3 + 1], coords[i * 3 + 2]);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      return mesh;
+    };
+    roadGroup.add(instanced(centerStuds, new THREE.BoxGeometry(0.18, 0.07, 0.18), studMat));
+    roadGroup.add(instanced(edgeStuds, new THREE.BoxGeometry(0.16, 0.06, 0.16), whiteStudMat));
 
     this.scene.add(roadGroup);
   }
@@ -756,6 +780,15 @@ export class EnvironmentBuilder {
         break;
       case 'ahmedabad_airport':
         this.buildAhmedabadAirport(landmarkGroup);
+        break;
+      case 'dholera': {
+        const d = dholera.build();
+        landmarkGroup.add(d.group);
+        this.animatableWindmills.push(...d.rotors);
+        break;
+      }
+      case 'porbandar':
+        landmarkGroup.add(porbandar.build());
         break;
       case 'rajkot':
       default:
@@ -1130,13 +1163,13 @@ export class EnvironmentBuilder {
     const tree = new THREE.Group();
     tree.position.set(x, 0, z);
 
-    const trunkGeo = new THREE.CylinderGeometry(0.35 * scale, 0.5 * scale, 3.5 * scale, 8);
-    const trunk = new THREE.Mesh(trunkGeo, this.trunkMat);
+    const trunk = new THREE.Mesh(TREE_TRUNK_GEO, this.trunkMat);
+    trunk.scale.setScalar(scale);
     trunk.position.y = (3.5 * scale) / 2;
     trunk.castShadow = true;
 
-    const foliageGeo = new THREE.DodecahedronGeometry(2.5 * scale);
-    const foliage = new THREE.Mesh(foliageGeo, this.leafMat);
+    const foliage = new THREE.Mesh(TREE_FOLIAGE_GEO, this.leafMat);
+    foliage.scale.setScalar(scale);
     foliage.position.y = 4.2 * scale;
     foliage.castShadow = true;
 
@@ -1197,7 +1230,7 @@ export class EnvironmentBuilder {
     ctx.strokeRect(12, 12, 1000, 232);
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 54px sans-serif';
+    ctx.font = 'bold 54px "Hind Vadodara", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(text, 512, 128);
@@ -1484,10 +1517,11 @@ export class EnvironmentBuilder {
     palaceGroup.add(centerWing, leftWing, rightWing, clockTower, towerSpire, dome1, dome2);
     complex.add(palaceGroup);
 
-    // 2. Sursagar Lake & 120-foot Golden/Stone Shiva Statue — SOUTH of the palace
-    //    (net +85 from the junction) so the reservoir never touches the roundabout.
+    // 2. Sursagar Lake & 120-foot Golden/Stone Shiva Statue — SOUTH-WEST of the palace
+    //    (net (-85, +85) from the junction) so the reservoir clears the roundabout and the
+    //    NH-48 running due south to Surat. Matches `lake_vadodara` in waterBodies.ts.
     const lakeGroup = new THREE.Group();
-    lakeGroup.position.set(0, 0, 110);
+    lakeGroup.position.set(-85, 0, 110);
 
     // Square lake reservoir
     const lakeBed = new THREE.Mesh(new THREE.BoxGeometry(38, 1.2, 28), this.stoneMat);
@@ -1820,10 +1854,9 @@ export class EnvironmentBuilder {
       this.buildHouse(roadsideGroup, h.spot.x, h.spot.z, h.name);
     }
 
-    // 11. Roadside Food & Tea Stall Encounters — placed exactly at the ROADSIDE_ENCOUNTERS
-    //     positions (single source of truth shared with the trigger logic in GameWorld)
-    for (const enc of ROADSIDE_ENCOUNTERS) {
-      this.buildFoodStall(roadsideGroup, enc.worldPosition.x, enc.worldPosition.z, enc.nameGujarati, enc.type === 'tea_stall' ? 'tea' : 'ganthiya');
+    // 11. Roadside chai stalls and ganthiya raths — highway culture scenery
+    for (const stall of ROADSIDE_STALLS) {
+      this.buildFoodStall(roadsideGroup, stall.spot.x, stall.spot.z, stall.name, stall.type);
     }
 
     // 12. Milestone Tree Groves along highway verges (outside asphalt + clearance buffer)
@@ -2502,7 +2535,7 @@ export class EnvironmentBuilder {
   }
 
   /**
-   * Build a 3D Visual Model for a Roadside Food / Tea Stall (matches ROADSIDE_ENCOUNTERS)
+   * Build a 3D Visual Model for a Roadside Tea Stall / Ganthiya Rath (see ROADSIDE_STALLS)
    */
   private buildFoodStall(parent: THREE.Group, x: number, z: number, name: string, type: 'tea' | 'ganthiya') {
     {

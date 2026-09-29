@@ -235,35 +235,7 @@ class SoundManager {
   }
 
   /**
-   * Sound effect for discovering new Gujarati food item
-   */
-  public playFoodDiscoverSound() {
-    this.initContext();
-    if (!this.ctx || this.isMuted) return;
-    const now = this.ctx.currentTime;
-
-    // Upward cheerful arpeggio
-    const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
-    notes.forEach((freq, idx) => {
-      const osc = this.ctx!.createOscillator();
-      const gain = this.ctx!.createGain();
-
-      osc.type = 'triangle';
-      osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-
-      gain.gain.setValueAtTime(0.25, now + idx * 0.08);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.35);
-
-      osc.connect(gain);
-      gain.connect(this.ctx!.destination);
-
-      osc.start(now + idx * 0.08);
-      osc.stop(now + idx * 0.08 + 0.4);
-    });
-  }
-
-  /**
-   * Sound effect for unlocking a new achievement / stamp
+   * Fanfare for a completed passenger mission
    */
   public playAchievementSound() {
     this.initContext();
@@ -318,7 +290,7 @@ class SoundManager {
   }
 
   /**
-   * One or more short horn toots (used for wrong quiz answer, mission accept cue).
+   * One or more short horn toots (used for warnings and the mission accept cue).
    */
   public playHorn(count: number = 1) {
     this.initContext();

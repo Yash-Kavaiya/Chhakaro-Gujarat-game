@@ -312,7 +312,7 @@ export class ChhakaroModel {
     sctx.fillStyle = '#dc2626';
     sctx.fillRect(8, 8, 496, 112);
     sctx.fillStyle = '#ffffff';
-    sctx.font = 'bold 44px sans-serif';
+    sctx.font = 'bold 44px "Hind Vadodara", sans-serif';
     sctx.textAlign = 'center';
     sctx.textBaseline = 'middle';
     sctx.fillText(this.customization.stickerText || 'જય ગરવી ગુજરાત', 256, 64);
@@ -613,7 +613,7 @@ export class ChhakaroModel {
       sctx.fillStyle = '#dc2626';
       sctx.fillRect(8, 8, 496, 112);
       sctx.fillStyle = '#ffffff';
-      sctx.font = 'bold 44px sans-serif';
+      sctx.font = 'bold 44px "Hind Vadodara", sans-serif';
       sctx.textAlign = 'center';
       sctx.textBaseline = 'middle';
       sctx.fillText(custom.stickerText || 'જય ગરવી ગુજરાત', 256, 64);

@@ -22,7 +22,7 @@ interface PhotoModeModalProps {
   routeVisitedIds: string[];
 }
 
-/** 123 → ૧૨૩. Local copy (PassportModal has its own) to keep this component self-contained. */
+/** 123 → ૧૨૩. Gujarati numerals for the postcard overlay. */
 const toGu = (n: number): string => String(n).replace(/[0-9]/g, (d) => '૦૧૨૩૪૫૬૭૮૯'[+d]);
 
 const PHOTO_FILTERS: PhotoFilter[] = [
@@ -107,12 +107,12 @@ export const PhotoModeModal: React.FC<PhotoModeModalProps> = ({
         ctx.stroke();
 
         ctx.fillStyle = '#fef08a';
-        ctx.font = 'bold 22px system-ui, sans-serif';
+        ctx.font = 'bold 22px "Hind Vadodara", system-ui, sans-serif';
         ctx.fillText(`📍 ${currentLocation.nameGujarati}`, stampX + 16, stampY + 32);
 
         ctx.fillStyle = '#94a3b8';
-        ctx.font = '14px system-ui, sans-serif';
-        ctx.fillText('છકડામાં ગુજરાત 🛺 સૌરાષ્ટ્ર સફારી', stampX + 16, stampY + 56);
+        ctx.font = '14px "Hind Vadodara", system-ui, sans-serif';
+        ctx.fillText('છકડામાં ગુજરાત 🛺 ગુજરાત સફારી', stampX + 16, stampY + 56);
       }
 
       const finalUrl = exportCanvas.toDataURL('image/jpeg', 0.95);

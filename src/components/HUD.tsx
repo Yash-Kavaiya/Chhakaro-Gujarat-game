@@ -1,9 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Compass,
   Map as MapIcon,
-  BookOpen,
-  Utensils,
   Wrench,
   Camera,
   Volume2,
@@ -15,32 +12,25 @@ import {
   Eye,
   Sparkles,
   Zap,
-  Clock,
-  Info,
-  Award,
   Users,
-  ShoppingBag,
-  HelpCircle,
-  AlertTriangle,
   Flame,
   Lock,
-  Unlock,
   RefreshCw,
   ChevronDown,
   Check,
 } from 'lucide-react';
-import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, RoadsideEncounter, TransmissionMode } from '../types';
+import { LocationData, CameraMode, WeatherType, TimeOfDayState, VehicleHealthState, PassengerData, MissionData, TimeFreezeMode, TransmissionMode, VehicleType } from '../types';
 import { GameWorld } from '../world/GameWorld';
 import { GUJARAT_LOCATIONS } from '../data/locations';
 import { SpeedometerGauge } from './SpeedometerGauge';
 import { MiniMap } from './MiniMap';
-import { KakaStrip } from './KakaStrip';
 
 interface HUDProps {
   speed: number;
   rpm: number;
   gear: string;
   transmissionMode: TransmissionMode;
+  vehicleType: VehicleType;
   currentLocation: LocationData;
   nearbyLandmark: LocationData | null;
   visitedLocations: string[];
@@ -56,8 +46,6 @@ interface HUDProps {
   activePassenger?: PassengerData | null;
   activeMission?: MissionData | null;
   nearbyFacility?: { type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null;
-  nearbyEncounter?: RoadsideEncounter | null;
-  coins: number;
   reputationStars: number;
   isMuted: boolean;
   totalKm: number;
@@ -70,23 +58,11 @@ interface HUDProps {
   onSetTimeFreezeMode?: (mode: TimeFreezeMode) => void;
   onRest?: () => void;
   onOpenMap: () => void;
-  onOpenPassport: () => void;
-  onOpenFood: () => void;
   onOpenGarage: () => void;
-  onOpenKaka: () => void;
-  lastKakaLine: string;
-  kakaMuted: boolean;
-  kakaMicActive: boolean;
-  onToggleKakaMuted: () => void;
-  onKakaMic: () => void;
   onOpenMissions: () => void;
-  onOpenSouvenirs: () => void;
-  onOpenQuiz?: () => void;
   onInspectLandmark: (loc: LocationData) => void;
   onCapturePhoto: () => void;
-  onRefuel?: () => void;
   onRepair?: () => void;
-  onInteractEncounter?: (encounter: RoadsideEncounter) => void;
   expertMode?: boolean;
   onShiftUp?: () => void;
   onShiftDown?: () => void;
@@ -98,6 +74,7 @@ export const HUD: React.FC<HUDProps> = ({
   rpm,
   gear,
   transmissionMode,
+  vehicleType,
   currentLocation,
   nearbyLandmark,
   visitedLocations,
@@ -112,8 +89,6 @@ export const HUD: React.FC<HUDProps> = ({
   activePassenger,
   activeMission,
   nearbyFacility,
-  nearbyEncounter,
-  coins,
   reputationStars,
   isMuted,
   totalKm,
@@ -126,23 +101,11 @@ export const HUD: React.FC<HUDProps> = ({
   onSetTimeFreezeMode,
   onRest,
   onOpenMap,
-  onOpenPassport,
-  onOpenFood,
   onOpenGarage,
-  onOpenKaka,
-  lastKakaLine,
-  kakaMuted,
-  kakaMicActive,
-  onToggleKakaMuted,
-  onKakaMic,
   onOpenMissions,
-  onOpenSouvenirs,
-  onOpenQuiz,
   onInspectLandmark,
   onCapturePhoto,
-  onRefuel,
   onRepair,
-  onInteractEncounter,
   expertMode,
   onShiftUp,
   onShiftDown,
@@ -429,6 +392,8 @@ export const HUD: React.FC<HUDProps> = ({
               rpm={rpm}
               gear={gear}
               transmissionMode={transmissionMode}
+              maxSpeed={vehicleType === 'car' ? 120 : vehicleType === 'bike' ? 100 : 80}
+              dialLabel={vehicleType === 'car' ? 'CAR' : vehicleType === 'bike' ? 'BIKE' : 'CHHAKDO'}
               totalKm={totalKm}
               currentLocation={currentLocation}
               isHeadlightOn={isHeadlightOn}
@@ -470,18 +435,6 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Top Control Action Buttons */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 shadow-lg">
-            {/* Kanji Kaka Guide */}
-            <button
-              id="hud-kaka-btn"
-              onClick={onOpenKaka}
-              className="flex items-center gap-1.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 px-3 py-1.5 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95"
-              title="કાનજી કાકો AI ટૂર ગાઈડ"
-            >
-              <span className="text-base">👳🏽‍♂️</span>
-              <span>કાનજી કાકો</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            </button>
-
             {/* Quick Freeze Day Toggle Button */}
             <button
               id="hud-freeze-day-btn"
@@ -592,33 +545,7 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         )}
 
-        {/* Roadside Encounter Prompt (Ganthiya / Tea Stall) */}
-        {nearbyEncounter && (
-          <div className="bg-slate-950/95 border-2 border-amber-400 p-3.5 sm:p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-3 animate-pulse w-full">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="text-3xl sm:text-4xl shrink-0">{nearbyEncounter.emoji}</span>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-black text-[10px] uppercase tracking-wider border border-amber-400/40 shrink-0">
-                    {nearbyEncounter.type === 'tea_stall' ? '🫖 કડક ચા સ્ટોપ' : '🥨 કાઠિયાવાડી વાનગી'}
-                  </span>
-                  <h4 className="font-black text-amber-200 text-sm truncate">{nearbyEncounter.nameGujarati}</h4>
-                </div>
-                <p className="text-xs text-slate-300 truncate mt-0.5 italic">"{nearbyEncounter.kakaDialogue}"</p>
-              </div>
-            </div>
-
-            <button
-              onClick={() => onInteractEncounter?.(nearbyEncounter)}
-              className="py-2 px-3.5 sm:py-2.5 sm:px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 font-black text-xs text-slate-950 whitespace-nowrap shadow-lg flex items-center gap-1.5 active:scale-95 transition-all shrink-0"
-            >
-              <span>ઉભા રહો & ચાખો (E)</span>
-            </button>
-          </div>
-        )}
-
-
-        {/* Active Passenger In Chhakaro Info Card */}
+        {/* Active Passenger Info Card */}
         {activePassenger && (
           <div className="bg-slate-950/85 border border-amber-500/40 p-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs w-full">
             <span className="text-2xl">{activePassenger.avatarEmoji}</span>
@@ -635,16 +562,8 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* Bottom HUD: MiniMap (Left) & Menu Navigation Dock (Right) */}
       <div className="flex flex-col sm:flex-row items-end sm:items-end justify-between gap-3 pointer-events-none w-full">
-        {/* Left Side: Kaka strip + MiniMap */}
+        {/* Left Side: MiniMap */}
         <div className="flex flex-col gap-2 items-start">
-          <KakaStrip
-            lastLine={lastKakaLine}
-            kakaMuted={kakaMuted}
-            micActive={kakaMicActive}
-            onToggleMuted={onToggleKakaMuted}
-            onOpen={onOpenKaka}
-            onMic={onKakaMic}
-          />
           <MiniMap
             worldRef={worldRef}
             locations={GUJARAT_LOCATIONS}
@@ -654,6 +573,21 @@ export const HUD: React.FC<HUDProps> = ({
             activeMission={activeMission ?? null}
           />
         </div>
+
+        {/* Nearby landmark — open its History Card (kept clear of the vehicle in view) */}
+        {nearbyLandmark && !activePassenger && (
+          <button
+            id="hud-inspect-landmark-btn"
+            onClick={() => onInspectLandmark(nearbyLandmark)}
+            className="pointer-events-auto self-end sm:self-auto bg-slate-950/85 border border-amber-500/50 px-4 py-2.5 rounded-2xl shadow-xl flex items-center gap-3 text-xs hover:border-amber-400 transition-colors"
+          >
+            <span className="text-2xl">{nearbyLandmark.icon}</span>
+            <span className="text-left">
+              <span className="block font-bold text-amber-300">{nearbyLandmark.nameGujarati}</span>
+              <span className="block text-[11px] text-slate-400">ઇતિહાસ જુઓ (E)</span>
+            </span>
+          </button>
+        )}
 
         {/* Right Side: Bottom Menu Navigation Dock */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 bg-slate-950/85 backdrop-blur-md p-2 rounded-2xl border border-amber-600/60 shadow-2xl pointer-events-auto">
@@ -668,29 +602,6 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="text-[10px] sm:text-[11px]">સવારી & મિશન</span>
           </button>
 
-          {/* Souvenirs / Handicrafts */}
-          <button
-            id="hud-souvenirs-btn"
-            onClick={onOpenSouvenirs}
-            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-emerald-500 hover:text-slate-950 text-emerald-300 text-xs font-bold transition-all active:scale-95 shadow"
-            title="ગુજરાતી હસ્તકળા અને સ્મૃતિચિહ્નો"
-          >
-            <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
-            <span className="text-[10px] sm:text-[11px]">સ્મૃતિચિહ્નો</span>
-          </button>
-
-          {/* Cultural Quiz */}
-          <button
-            id="hud-quiz-btn"
-            onClick={onOpenQuiz}
-            disabled={!onOpenQuiz}
-            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-indigo-500 hover:text-slate-950 text-indigo-300 text-xs font-bold transition-all active:scale-95 shadow disabled:opacity-50 disabled:cursor-not-allowed"
-            title={onOpenQuiz ? 'ગુજરાત ક્વિઝ' : 'આ સ્થળે ક્વિઝ ઉપલબ્ધ નથી'}
-          >
-            <HelpCircle className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
-            <span className="text-[10px] sm:text-[11px]">ક્વિઝ</span>
-          </button>
-
           {/* Map */}
           <button
             id="hud-map-btn"
@@ -702,34 +613,12 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="text-[10px] sm:text-[11px]">નકશો</span>
           </button>
 
-          {/* Passport */}
-          <button
-            id="hud-passport-btn"
-            onClick={onOpenPassport}
-            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-xs font-bold transition-all active:scale-95 shadow"
-            title="ગુજરાત પ્રવાસ પાસપોર્ટ"
-          >
-            <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
-            <span className="text-[10px] sm:text-[11px]">પાસપોર્ટ</span>
-          </button>
-
-          {/* Kathiyawadi Foods */}
-          <button
-            id="hud-food-btn"
-            onClick={onOpenFood}
-            className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-xs font-bold transition-all active:scale-95 shadow"
-            title="કાઠિયાવાડી & ગુજરાતી વાનગીઓ"
-          >
-            <Utensils className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
-            <span className="text-[10px] sm:text-[11px]">વાનગીઓ</span>
-          </button>
-
-          {/* Chhakaro Garage */}
+          {/* Vehicle Garage */}
           <button
             id="hud-garage-btn"
             onClick={onOpenGarage}
             className="flex flex-col items-center justify-center p-2 sm:px-3 sm:py-2 rounded-xl bg-slate-800/90 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-xs font-bold transition-all active:scale-95 shadow"
-            title="મારું છકડું (કસ્ટમાઇઝેશન)"
+            title="ગેરેજ — વાહન બદલો અને સજાવો"
           >
             <Wrench className="w-4 h-4 sm:w-5 sm:h-5 mb-0.5" />
             <span className="text-[10px] sm:text-[11px]">ગેરેજ</span>

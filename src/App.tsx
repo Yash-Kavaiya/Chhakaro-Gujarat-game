@@ -1,19 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GameWorld } from './world/GameWorld';
 import { HUD } from './components/HUD';
-import { KanjiKakaGuide } from './components/KanjiKakaGuide';
 import { GujaratMapModal } from './components/GujaratMapModal';
-import { PassportModal } from './components/PassportModal';
-import { FoodPassportModal } from './components/FoodPassportModal';
 import { GarageModal } from './components/GarageModal';
 import { LandmarkInspectModal } from './components/LandmarkInspectModal';
 import { PassengerMissionModal } from './components/PassengerMissionModal';
-import { SouvenirShopModal } from './components/SouvenirShopModal';
-import { QuizModal } from './components/QuizModal';
 import { PhotoModeModal } from './components/PhotoModeModal';
 import { MobileControls } from './components/MobileControls';
 import { StartScreen } from './components/StartScreen';
-import { RoadsideEncounterModal } from './components/RoadsideEncounterModal';
 import { NavBanner } from './components/NavBanner';
 import {
   LocationData,
@@ -25,30 +19,21 @@ import {
   VehicleHealthState,
   PassengerData,
   MissionData,
-  SouvenirItem,
-  CulturalQuiz,
   TimeFreezeMode,
-  RoadsideEncounter,
-  PassportStampRecord,
   NavTarget,
   TransmissionMode,
+  VehicleType,
 } from './types';
-import { GUJARAT_LOCATIONS } from './data/locations';
+import { GUJARAT_LOCATIONS, START_LOCATION } from './data/locations';
 import { GUJARAT_MISSIONS } from './data/missions';
-import { GUJARATI_SOUVENIRS } from './data/souvenirs';
-import { GUJARATI_QUIZZES } from './data/quizzes';
 import { soundManager } from './audio/SoundManager';
-import { voiceQueue, setKakaMutedGetter } from './audio/VoiceQueue';
-import { evaluateAchievements } from './state/achievements';
+import { voiceQueue } from './audio/VoiceQueue';
 import { isMissionComplete } from './state/missionMatching';
 import { loadProgress, saveProgress, clearProgress, flushProgress } from './state/persistence';
 import { NotifyMessage, NotifyOptions, toneSound } from './state/notify';
 import { navState, NavState } from './state/navigation';
 import { nearestUnvisited } from './state/exploration';
-import { KakaEvent, KakaContext, buildKakaContext } from './state/kakaContext';
-import { evaluateKakaTriggers } from './state/kakaTriggers';
-import { useKakaCompanion } from './state/useKakaCompanion';
-import { VoiceIntent, matchVoiceIntent } from './state/voiceCommands';
+import { VEHICLE_SPECS } from './world/vehicles/VehicleModel';
 
 // Gujarati warning banners for procedural road incidents (see world/IncidentDirector).
 const INCIDENT_TEXT: Record<string, string> = {
@@ -57,6 +42,9 @@ const INCIDENT_TEXT: Record<string, string> = {
   slow_tractor: 'આગળ ધીમું ટ્રેક્ટર — સાચવીને ઓવરટેક કરો.',
   rain_puddle: 'આગળ ખાબોચિયું — સ્પીડ ઓછી કરો.',
 };
+
+const locName = (id: string | null | undefined): string =>
+  (id && GUJARAT_LOCATIONS.find((l) => l.id === id)?.nameGujarati) || id || '';
 
 export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -71,22 +59,22 @@ export default function App() {
   const [speed, setSpeed] = useState(0);
   const [rpm, setRpm] = useState(800);
   const [gear, setGear] = useState<string>('N');
-  // Persisted gearbox prefs. The Expert toggle (StartScreen + a future in-game control) drives
-  // both: Expert on ⇒ manual gearbox, off ⇒ automatic. Persisted via the saveProgress payload.
+  // Persisted gearbox prefs. The Expert toggle drives both: Expert on ⇒ manual gearbox,
+  // off ⇒ automatic.
   const [transmissionMode, setTransmissionMode] = useState<TransmissionMode>(initial.transmissionMode);
   const [expertMode, setExpertMode] = useState(initial.expertMode);
   // handleGlobalKeys is registered once inside the world-init effect; it reads the live Expert
   // flag through this ref rather than forcing that effect to re-run on every toggle.
   const expertModeRef = useRef(expertMode);
   expertModeRef.current = expertMode;
-  const [currentLocation, setCurrentLocation] = useState<LocationData>(
-    GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0],
-  );
+  // Chosen vehicle (chhakaro / car / bike) — picked on the start screen or in the garage.
+  const [vehicleType, setVehicleType] = useState<VehicleType>(initial.vehicleType);
+  const vehicleName = VEHICLE_SPECS[vehicleType].nameGujarati;
+  // Every trip starts in Gandhinagar; currentLocation then follows the vehicle.
+  const [currentLocation, setCurrentLocation] = useState<LocationData>(START_LOCATION);
   const [nearbyLandmark, setNearbyLandmark] = useState<LocationData | null>(null);
   const [nearbyFacility, setNearbyFacility] = useState<{ type: 'petrol' | 'garage' | 'toll'; name: string; distance: number } | null>(null);
   const [nearbyToll, setNearbyToll] = useState<{ name: string } | null>(null);
-  const [nearbyEncounter, setNearbyEncounter] = useState<RoadsideEncounter | null>(null);
-  const [activeEncounterModal, setActiveEncounterModal] = useState<RoadsideEncounter | null>(null);
   const [isHeadlightOn, setIsHeadlightOn] = useState(true);
   const [isHazardOn, setIsHazardOn] = useState(false);
   const [isEngineOn, setIsEngineOn] = useState(true);
@@ -97,7 +85,7 @@ export default function App() {
   const [totalKm, setTotalKm] = useState(initial.totalKm);
 
   // Progression
-  const [coins, setCoins] = useState(initial.coins);
+  const [coins] = useState(initial.coins);
   const [reputationStars, setReputationStars] = useState(initial.reputationStars);
 
   // Vehicle Health State
@@ -115,55 +103,33 @@ export default function App() {
     conditionScore: 95,
   });
 
-  // User Progress & Collection
+  // User Progress
   const [visitedLocations, setVisitedLocations] = useState<string[]>(initial.visitedLocations);
-  const [discoveredFoods, setDiscoveredFoods] = useState<string[]>(initial.discoveredFoods);
-  const [unlockedAchievements, setUnlockedAchievements] = useState<string[]>(initial.unlockedAchievements);
-  const [collectedSouvenirs, setCollectedSouvenirs] = useState<string[]>(initial.collectedSouvenirs);
   const [completedMissions, setCompletedMissions] = useState<string[]>(initial.completedMissions);
-  const [quizScore, setQuizScore] = useState(initial.quizScore);
-  const [stampMeta, setStampMeta] = useState<Record<string, PassportStampRecord>>(initial.stampMeta);
 
   // Mirrors visitedLocations for recordVisit, which is called from the once-registered
   // world.onLocationChange closure — a plain read of visitedLocations there would be frozen
-  // at its initial value and re-award coins on every zone re-entry.
+  // at its initial value.
   const visitedLocationsRef = useRef<string[]>(initial.visitedLocations);
   useEffect(() => {
     visitedLocationsRef.current = visitedLocations;
   }, [visitedLocations]);
 
-  // Derived quiz for current location
-  const currentQuiz: CulturalQuiz | null =
-    (GUJARATI_QUIZZES || []).find((q) => q.locationId === currentLocation?.id) ?? null;
-
-  // Derived souvenirs for current location
-  const currentLocationSouvenirs = (GUJARATI_SOUVENIRS || [])
-    .filter((s) => s.locationId === currentLocation?.id)
-    .map((s) => ({ ...s, acquired: (collectedSouvenirs || []).includes(s.id) }));
-
   // Passenger & Active Mission
   const [activePassenger, setActivePassenger] = useState<PassengerData | null>(null);
   const [activeMission, setActiveMission] = useState<MissionData | null>(null);
 
-  // Turn-by-turn nav. `navTarget` is an *explicit* user destination ("માર્ગ બતાવો" / a voice
-  // command); `routeQueue` is a Kaka trip plan being driven stop by stop; a mission drop is
-  // the implicit third source. Precedence: explicit > route queue > mission.
+  // Turn-by-turn nav. `navTarget` is an explicit user destination ("માર્ગ બતાવો"); a mission
+  // drop is the implicit second source. Precedence: explicit > mission.
   const [navTarget, setNavTarget] = useState<NavTarget | null>(null);
-  const [routeQueue, setRouteQueue] = useState<string[]>([]);
   const [navLive, setNavLive] = useState<NavState | null>(null);
-  // world.onVehicleMove is registered once, so it reads the derived target + queue via refs.
+  // world.onVehicleMove is registered once, so it reads the derived target via a ref.
   const navTargetRef = useRef<NavTarget | null>(null);
-  const routeQueueRef = useRef<string[]>([]);
   const navTickRef = useRef(0);
   const navStartDistRef = useRef<number | null>(null);
   const navCuesRef = useRef({ start: false, half: false, near: false });
 
-  const effectiveNavTargetId: string | null =
-    navTarget?.locationId ?? routeQueue[0] ?? activeMission?.dropLocationId ?? null;
-
-  useEffect(() => {
-    routeQueueRef.current = routeQueue;
-  }, [routeQueue]);
+  const effectiveNavTargetId: string | null = navTarget?.locationId ?? activeMission?.dropLocationId ?? null;
 
   useEffect(() => {
     navTargetRef.current = effectiveNavTargetId ? { locationId: effectiveNavTargetId } : null;
@@ -172,93 +138,9 @@ export default function App() {
     if (!effectiveNavTargetId) setNavLive(null);
   }, [effectiveNavTargetId]);
 
-  // Bounded ring of the player's last few actions — Kaka reacts to these. pushKakaEvent is
-  // called from the reward paths; the tick state forces the kakaContext memo to refresh.
-  const recentEventsRef = useRef<KakaEvent[]>([]);
-  const [kakaEventTick, setKakaEventTick] = useState(0);
-  const pushKakaEvent = (e: KakaEvent) => {
-    recentEventsRef.current = [e, ...recentEventsRef.current].slice(0, 5);
-    setKakaEventTick((t) => t + 1);
-  };
-  const locName = (id: string | null | undefined): string =>
-    (id && GUJARAT_LOCATIONS.find((l) => l.id === id)?.nameGujarati) || id || '';
-
-  // The one live snapshot every Kaka utterance is grounded in. Consumed by the companion
-  // hook and the proactive-trigger effect (added in later M2 tasks).
-  const kakaContext: KakaContext = useMemo(
-    () =>
-      buildKakaContext({
-        zoneId: currentLocation.id,
-        zoneNameGujarati: currentLocation.nameGujarati,
-        zoneRegion: currentLocation.region,
-        nearbyLandmarkId: nearbyLandmark?.id ?? null,
-        nearbyLandmarkUnvisited: nearbyLandmark
-          ? !visitedLocations.includes(nearbyLandmark.id) && effectiveNavTargetId !== nearbyLandmark.id
-          : false,
-        visitedCount: visitedLocations.length,
-        totalLocations: GUJARAT_LOCATIONS.length,
-        mission: activeMission
-          ? {
-              titleGujarati: activeMission.titleGujarati,
-              dropNameGujarati: locName(activeMission.dropLocationId),
-            }
-          : null,
-        nav:
-          effectiveNavTargetId && navLive
-            ? { targetNameGujarati: locName(effectiveNavTargetId), distanceM: navLive.distanceM }
-            : null,
-        speedKmh: speed,
-        vehiclePos: worldRef.current
-          ? { x: worldRef.current.vehiclePos.x, z: worldRef.current.vehiclePos.z }
-          : null,
-        fuelPercent: vehicleHealth.fuelPercent,
-        weather,
-        timeOfDayPhase: timeOfDay?.phase ?? null,
-        recentEvents: recentEventsRef.current,
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [
-      currentLocation,
-      nearbyLandmark,
-      visitedLocations,
-      activeMission,
-      effectiveNavTargetId,
-      navLive,
-      speed,
-      vehicleHealth,
-      weather,
-      timeOfDay,
-      kakaEventTick,
-    ],
-  );
-
-  // The last line Kaka said out loud — chat reply or proactive trigger — for the HUD strip.
-  const [lastKakaNarration, setLastKakaNarration] = useState<string>('');
-  // "કાકા શાંત" — silences Kaka's proactive/spoken lines. Persisted (schema v3).
-  const [kakaMuted, setKakaMuted] = useState(initial.kakaMuted);
-  const kakaMutedRef = useRef(kakaMuted);
-  kakaMutedRef.current = kakaMuted;
-
-  // The companion controller reads the context through a ref accessor so its callbacks stay
-  // stable while every request still carries the freshest snapshot.
-  const kakaContextRef = useRef(kakaContext);
-  kakaContextRef.current = kakaContext;
-  const getKakaContext = useCallback(() => kakaContextRef.current, []);
-  const kaka = useKakaCompanion(getKakaContext);
-
-  useEffect(() => {
-    if (kaka.lastReply) setLastKakaNarration(kaka.lastReply);
-  }, [kaka.lastReply]);
-
-  useEffect(() => {
-    setKakaMutedGetter(() => kakaMutedRef.current);
-  }, []);
-
   // Live refs that always mirror the active mission/passenger. The GameWorld proximity
-  // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, in the
-  // effect below, so a plain closure over `activeMission` would freeze at its first value
-  // (null). checkMissionCompletion reads these refs instead. A useEffect sync is the robust
-  // choice — imperative writes in the handlers are only belt-and-braces.
+  // callbacks (onLandmarkApproach / onLocationChange) are registered exactly once, so a plain
+  // closure over `activeMission` would freeze at its first value (null).
   const activeMissionRef = useRef<MissionData | null>(null);
   const activePassengerRef = useRef<PassengerData | null>(null);
 
@@ -275,20 +157,14 @@ export default function App() {
 
   // Modals
   const [isMapOpen, setIsMapOpen] = useState(false);
-  const [isPassportOpen, setIsPassportOpen] = useState(false);
-  const [isFoodOpen, setIsFoodOpen] = useState(false);
   const [isGarageOpen, setIsGarageOpen] = useState(false);
-  const [isKakaOpen, setIsKakaOpen] = useState(false);
   const [isMissionsOpen, setIsMissionsOpen] = useState(false);
-  const [isSouvenirsOpen, setIsSouvenirsOpen] = useState(false);
-  const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isPhotoModeOpen, setIsPhotoModeOpen] = useState(false);
   const [inspectingLandmark, setInspectingLandmark] = useState<LocationData | null>(null);
 
-  // The single reward / event feedback channel. Every path that used to pair an ad-hoc
-  // setFloatingBanner(...) with a loose soundManager.* call now calls notify() — one banner
-  // style, one sound per tone. Uses only refs + the stable setter, so it is safe to call
-  // from the once-registered world callbacks.
+  // The single reward / event feedback channel: one banner style, one sound per tone. Uses
+  // only refs + the stable setter, so it is safe to call from the once-registered world
+  // callbacks.
   const [notice, setNotice] = useState<NotifyMessage | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const noticeSeq = useRef(0);
@@ -299,8 +175,8 @@ export default function App() {
     const s = toneSound(tone);
     if (s === 'chime') soundManager.playChime();
     else if (s === 'horn') soundManager.playHorn(1);
-    // Kaka narration goes through the shared queue so lines never overlap; the short
-    // tone SFX above stays on soundManager.
+    // Narration goes through the shared queue so lines never overlap; the short tone SFX
+    // above stays on soundManager.
     if (speak) voiceQueue.enqueue(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
     noticeTimer.current = setTimeout(() => setNotice(null), ttlMs);
@@ -308,56 +184,68 @@ export default function App() {
 
   useEffect(() => () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }, []);
 
-  // Proactive Kanji Kaka narration. Diff the previous vs current context snapshot on every
-  // change; evaluateKakaTriggers is pure and rising-edge, and firedTriggerIds keeps each
-  // trigger to one utterance per session. The very first snapshot only seeds the ref so the
-  // "entered rajkot" line doesn't double up with the start-game greeting.
-  const prevKakaContextRef = useRef<KakaContext | null>(null);
-  const firedTriggerIds = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!isGameStarted) return;
-    const prev = prevKakaContextRef.current;
-    prevKakaContextRef.current = kakaContext;
-    if (!prev) return;
-    const fire = evaluateKakaTriggers(prev, kakaContext);
-    if (!fire || kakaMuted || firedTriggerIds.current.has(fire.id)) return;
-    firedTriggerIds.current.add(fire.id);
-    voiceQueue.enqueue(fire.textGujarati, { priority: fire.priority, dedupeKey: fire.id });
-    notify({ text: fire.textGujarati, tone: 'info', speak: false });
-    setLastKakaNarration(fire.textGujarati);
-  }, [isGameStarted, kakaContext, kakaMuted]);
-
-  // Initialize Three.js Game World
+  // Initialize Three.js Game World. Canvas-drawn signboards are rasterised once at build
+  // time, so wait for the Hind Vadodara webfont before building (bounded, so a blocked font
+  // CDN can never hang the game).
   useEffect(() => {
     if (!isGameStarted || !containerRef.current) return;
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
 
-    // transmissionMode (not initial.*) so an Expert opt-in made on the StartScreen is already
-    // live when the world spins up; mid-game toggles go through world.setTransmissionMode.
-    const world = new GameWorld(containerRef.current, customization, initial.totalKm * 1000, transmissionMode);
+    const fontsReady = Promise.race([
+      Promise.all([
+        document.fonts?.load('700 48px "Hind Vadodara"', 'ગુજરાત'),
+        document.fonts?.load('400 48px "Hind Vadodara"', 'ગુજરાત'),
+      ]).catch(() => undefined),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
+
+    fontsReady.then(() => {
+      if (cancelled || !containerRef.current) return;
+      cleanup = initWorld(containerRef.current);
+    });
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGameStarted]);
+
+  const initWorld = (container: HTMLElement) => {
+    // transmissionMode / vehicleType (not initial.*) so start-screen choices are already live
+    // when the world spins up; mid-game changes go through the world's setters.
+    const world = new GameWorld(
+      container,
+      customization,
+      initial.totalKm * 1000,
+      transmissionMode,
+      vehicleType,
+      START_LOCATION,
+    );
     worldRef.current = world;
     canvasRef.current = world.canvas;
 
     world.startVehicleEngine();
 
-    // Callbacks
+    // Callbacks (GameWorld throttles these to ~10 Hz / ~4 Hz)
     world.onSpeedUpdate = (newSpeed, newRpm) => {
       setSpeed(newSpeed);
       setRpm(newRpm);
-      setTotalKm(world.totalDistanceDriven / 1000);
+      setTotalKm(Math.round(world.totalDistanceDriven / 10) / 100);
     };
 
     world.onGearChange = (g) => setGear(g);
 
     // The WeatherDirector re-picks weather as the player drives between regions / times of
-    // day; mirror it into React so the HUD icon and Kaka context stay truthful.
+    // day; mirror it into React so the HUD icon stays truthful.
     world.onWeatherChange = (w) => setWeather(w);
 
     // Procedural road incident just appeared ~40 units ahead — warn the player (banner only).
     world.onIncident = (i) => notify({ text: INCIDENT_TEXT[i.kind], tone: 'warn', speak: false });
 
     // Turn-by-turn: throttled straight-line route to the target zone centre + one-shot
-    // Gujarati voice cues at set / ~50% / ~90% / arrival. navTarget is read via its ref
-    // because this callback is registered exactly once.
+    // Gujarati voice cues at set / ~50% / ~90% / arrival.
     world.onVehicleMove = (x, z, heading) => {
       const target = navTargetRef.current;
       if (!target) return;
@@ -394,43 +282,15 @@ export default function App() {
       if (ns.arrived) {
         notify({ text: `પહોંચી ગયા! ${loc.nameGujarati}`, tone: 'reward' });
         checkMissionCompletion(loc.id);
-
-        // Advance a Kaka trip plan one stop.
-        const queue = routeQueueRef.current;
-        if (queue[0] === loc.id) {
-          const rest = queue.slice(1);
-          routeQueueRef.current = rest;
-          setRouteQueue(rest);
-          if (rest.length > 0) {
-            const nextLoc = GUJARAT_LOCATIONS.find((l) => l.id === rest[0]);
-            if (nextLoc) voiceQueue.enqueue(`આગળનું સ્થળ: ${nextLoc.nameGujarati}`);
-          } else {
-            notify({ text: 'સફર પૂરી! મોજ કરો.', tone: 'reward' });
-          }
-        }
-
-        // Clear an explicit destination once reached (queue / mission targets self-clear).
+        // Clear an explicit destination once reached (mission targets self-clear).
         setNavTarget((cur) => (cur && cur.locationId === loc.id ? null : cur));
       }
     };
 
-    world.onTimeOfDayUpdate = (timeState) => {
-      setTimeOfDay(timeState);
-    };
-
-    world.onHealthUpdate = (health) => {
-      setVehicleHealth(health);
-    };
-
-    world.onFacilityApproach = (facility) => {
-      setNearbyFacility(facility ? { ...facility, distance: 10 } : null);
-    };
-
+    world.onTimeOfDayUpdate = (timeState) => setTimeOfDay(timeState);
+    world.onHealthUpdate = (health) => setVehicleHealth(health);
+    world.onFacilityApproach = (facility) => setNearbyFacility(facility ? { ...facility, distance: 10 } : null);
     world.onTollApproach = (t) => setNearbyToll(t);
-
-    world.onEncounterApproach = (encounter) => {
-      setNearbyEncounter(encounter);
-    };
 
     world.onLandmarkApproach = (loc) => {
       setNearbyLandmark(loc);
@@ -444,13 +304,6 @@ export default function App() {
       checkMissionCompletion(loc.id);
     };
 
-    // Deep-link spawn: /?zone=ahmedabad starts the trip at that landmark (QA + shareable links)
-    const zoneParam = new URLSearchParams(window.location.search).get('zone');
-    if (zoneParam) {
-      const target = GUJARAT_LOCATIONS.find((l) => l.id === zoneParam);
-      if (target) world.teleportToLocation(target);
-    }
-
     // Keyboard Shortcuts
     const handleGlobalKeys = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
@@ -458,36 +311,29 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (key === 'm') {
         setIsMapOpen((prev) => !prev);
-      } else if (key === 'p') {
-        setIsPassportOpen((prev) => !prev);
       } else if (key === 't') {
-        if (worldRef.current) {
-          const isFrozen = worldRef.current.toggleFreezeDay();
-          notify({
-            text: isFrozen
-              ? '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો લૉક થયો (Day Frozen)'
-              : '🔄 ગતિશીલ ૨૪-કલાક ચક્ર શરૂ થયું (Dynamic Cycle)',
-            tone: 'info',
-            speak: false,
-            ttlMs: 3000,
-          });
-        }
+        const isFrozen = world.toggleFreezeDay();
+        notify({
+          text: isFrozen
+            ? '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો લૉક થયો (Day Frozen)'
+            : '🔄 ગતિશીલ ૨૪-કલાક ચક્ર શરૂ થયું (Dynamic Cycle)',
+          tone: 'info',
+          speak: false,
+          ttlMs: 3000,
+        });
       } else if (key === 'q') {
         // Expert-only: shift down one gear.
         if (!expertModeRef.current) return;
-        worldRef.current?.shiftDown();
+        world.shiftDown();
       } else if (key === 'e') {
-        // Expert mode repurposes E as shift-up; otherwise E is the landmark/encounter action.
+        // Expert mode repurposes E as shift-up; otherwise E opens the nearby History Card.
         if (expertModeRef.current) {
-          worldRef.current?.shiftUp();
-        } else if (world.nearbyEncounter) {
-          setActiveEncounterModal(world.nearbyEncounter);
+          world.shiftUp();
         } else if (world.nearbyLandmark) {
           setInspectingLandmark(world.nearbyLandmark);
         }
       } else if (key === 'i') {
-        // Expert-only: manual engine start/stop (like q/e). In auto mode the engine is
-        // managed for the player. GameWorld also refuses to stop the engine above 1 km/h.
+        // Expert-only: manual engine start/stop. GameWorld refuses to stop above 1 km/h.
         if (!expertModeRef.current) return;
         handleToggleEngine();
       }
@@ -501,12 +347,10 @@ export default function App() {
       worldRef.current = null;
       canvasRef.current = null;
     };
-  }, [isGameStarted]);
+  };
 
-  // Idle nudge: parked (~8 s) inside a visited zone → one Kaka suggestion toward the nearest
-  // unvisited place, at most once per zone per session. speed is rounded, so a genuine stop
-  // holds this effect stable and lets the timer complete; any movement re-runs it and the
-  // `speed < 1` gate cancels the pending nudge.
+  // Idle nudge: parked (~8 s) inside a visited zone → one suggestion toward the nearest
+  // unvisited place, at most once per zone per session.
   const nudgedZonesRef = useRef<Set<string>>(new Set());
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -520,10 +364,7 @@ export default function App() {
 
     idleTimerRef.current = setTimeout(() => {
       const from = worldRef.current?.vehiclePos ?? currentLocation.worldPosition;
-      const next = nearestUnvisited(GUJARAT_LOCATIONS, visitedLocationsRef.current, {
-        x: from.x,
-        z: from.z,
-      });
+      const next = nearestUnvisited(GUJARAT_LOCATIONS, visitedLocationsRef.current, { x: from.x, z: from.z });
       if (!next) return;
       nudgedZonesRef.current.add(currentLocation.id);
       notify({ text: `અહીંથી ${next.nameGujarati} નજીક છે — ત્યાં ફરવા જઈએ?`, tone: 'info' });
@@ -537,60 +378,32 @@ export default function App() {
     };
   }, [isGameStarted, speed, currentLocation, visitedLocations]);
 
-  // Unlock achievements in reaction to committed progress. Side effects (sound + banner)
-  // are deliberately kept out of every setState updater so React 19 StrictMode's dev
-  // double-invoke of updaters can't fire the achievement sound or banner twice.
-  useEffect(() => {
-    if (!isGameStarted) return;
-    const earned = evaluateAchievements({ visitedLocations, discoveredFoods }) || [];
-    const added = earned.filter((id) => !(unlockedAchievements || []).includes(id));
-    if (added.length === 0) return;
-    // playAchievementSound is distinct from the reward chime, so keep it and pass a silent
-    // tone rather than letting notify double the audio.
-    soundManager.playAchievementSound();
-    notify({ text: `🏅 નવું અચીવમેન્ટ અનલૉક! (${added.length})`, tone: 'info', speak: false });
-    // Union, never wholesale-replace: an id in the saved set that a future renamed/removed
-    // rule no longer reproduces must not be silently dropped.
-    setUnlockedAchievements((prev) => [...new Set([...prev, ...earned])]);
-  }, [isGameStarted, visitedLocations, discoveredFoods, unlockedAchievements]);
-
   // Persist the GameProgress slice on every change. saveProgress debounces the actual
-  // localStorage write (~500ms), so this staying cheap is what keeps driving smooth even
-  // though totalKm ticks continuously. Vehicle sim state is deliberately excluded.
+  // localStorage write (~500ms). Vehicle sim state is deliberately excluded.
   useEffect(() => {
     saveProgress({
       coins,
       reputationStars,
       visitedLocations,
-      discoveredFoods,
-      unlockedAchievements,
-      collectedSouvenirs,
       completedMissions,
-      quizScore,
       customization,
       totalKm,
       lastLocationId: currentLocation.id,
-      stampMeta,
-      kakaMuted,
       transmissionMode,
       expertMode,
+      vehicleType,
     });
   }, [
     coins,
     reputationStars,
     visitedLocations,
-    discoveredFoods,
-    unlockedAchievements,
-    collectedSouvenirs,
     completedMissions,
-    quizScore,
     customization,
     totalKm,
     currentLocation,
-    stampMeta,
-    kakaMuted,
     transmissionMode,
     expertMode,
+    vehicleType,
   ]);
 
   // Force any pending debounced write to disk before the tab unloads.
@@ -600,54 +413,24 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onHide);
   }, []);
 
-  // The single entry point for "the player is now at locId". Adds to visitedLocations and,
-  // on the FIRST visit only, writes the passport stamp (date + odometer) and awards a
-  // Safe to call from the stale world.onLocationChange closure: the guard
-  // reads visitedLocationsRef, and the ref is bumped synchronously so a paired callback
-  // fire (onLandmarkApproach + onLocationChange for the same arrival) is a no-op.
-  // Achievement unlocking stays a reaction to committed progress (see the effect above) —
+  // The single entry point for "the player is now at locId". Safe to call from the stale
+  // world.onLocationChange closure: the guard reads visitedLocationsRef, and the ref is bumped
+  // synchronously so a paired callback fire is a no-op.
   const recordVisit = (locId: string) => {
     if (visitedLocationsRef.current.includes(locId)) return;
-    const km = worldRef.current ? worldRef.current.totalDistanceDriven / 1000 : totalKm;
     visitedLocationsRef.current = [...visitedLocationsRef.current, locId];
     setVisitedLocations((prev) => (prev.includes(locId) ? prev : [...prev, locId]));
-    setStampMeta((prev) =>
-      prev[locId] ? prev : { ...prev, [locId]: { visitedAt: new Date().toISOString(), kilometersDriven: km } },
-    );
-    pushKakaEvent({ kind: 'stamp', nameGujarati: locName(locId) });
-    notify({ text: '📖 નવો પાસપોર્ટ સ્ટેમ્પ!', tone: 'reward', speak: false });
-  };
-
-  const handleDiscoverFood = (foodId: string) => {
-    setDiscoveredFoods((prev) => (prev.includes(foodId) ? prev : [...prev, foodId]));
-  };
-
-  const handleTasteAndCollectFood = (encounter: RoadsideEncounter) => {
-    if (encounter.foodId) {
-      handleDiscoverFood(encounter.foodId);
-    }
-    setReputationStars((prev) => Math.min(5, prev + 1));
-    const foodName = encounter.foodNameGujarati || encounter.foodNameEnglish || 'વાનગી';
-    pushKakaEvent({ kind: 'food', nameGujarati: foodName });
-    notify({
-      text: `🍽️ વાહ! "${foodName}" નો સ્વાદ માણ્યો અને ફૂડ પાસપોર્ટમાં ઉમેરાઈ!`,
-      tone: 'reward',
-      speak: false,
-    });
-    setActiveEncounterModal(null);
+    notify({ text: `📍 નવું સ્થળ જોયું: ${locName(locId)}`, tone: 'reward', speak: false });
   };
 
   const triggerLandmarkWelcome = (loc: LocationData) => {
-    const welcomeSpeech = `આપણે હવે ${loc.nameGujarati} પહોંચી ગયા છીએ! અહીં ${loc.famousFood} નો સ્વાદ લેવાનું ભૂલતા નહીં!`;
-    setLastKakaNarration(welcomeSpeech);
-    notify({ text: welcomeSpeech, tone: 'info', ttlMs: 8000 });
+    notify({ text: `આપણે હવે ${loc.nameGujarati} પહોંચી ગયા છીએ! ${loc.tagline}`, tone: 'info', ttlMs: 8000 });
   };
 
   // Check if passenger mission arrived at destination. Invoked from the once-registered
-  // GameWorld callbacks, so it reads the live refs — never the state — to avoid a stale
-  // closure. onLandmarkApproach AND onLocationChange both fire for the same arrival, so the
-  // ref is cleared synchronously at the top of the completion branch: the second call then
-  // sees a null mission and is a no-op (no double award).
+  // GameWorld callbacks, so it reads the live refs. onLandmarkApproach AND onLocationChange
+  // both fire for the same arrival, so the ref is cleared synchronously at the top of the
+  // completion branch: the second call then sees a null mission and is a no-op.
   const checkMissionCompletion = (arrivedLocationId: string) => {
     const mission = activeMissionRef.current;
     if (isMissionComplete(mission, arrivedLocationId)) {
@@ -659,16 +442,13 @@ export default function App() {
       setCompletedMissions((m) => [...m, mission.id]);
 
       const successMsg = `શાબાશ! મુસાફર ${passenger?.nameGujarati || ''} ને મુકામે પહોંચાડ્યા!`;
-      pushKakaEvent({ kind: 'mission_done', nameGujarati: locName(arrivedLocationId) });
       soundManager.playAchievementSound();
       notify({ text: `🎉 ${successMsg} (+0.1 ★)`, tone: 'info', speak: true });
 
       // Clear passenger from vehicle; the mission-derived nav arrow drops with the mission.
       setActivePassenger(null);
       setActiveMission(null);
-      if (worldRef.current) {
-        worldRef.current.setPassenger(null);
-      }
+      worldRef.current?.setPassenger(null);
     }
   };
 
@@ -676,15 +456,12 @@ export default function App() {
     const passenger = mission.passenger ?? null;
     setActiveMission(mission);
     setActivePassenger(passenger);
-    // Belt-and-braces: keep the refs live this same tick so a fast-travel fired before the
-    // sync effect commits still sees the accepted mission.
+    // Keep the refs live this same tick so a fast-travel fired before the sync effect
+    // commits still sees the accepted mission.
     activeMissionRef.current = mission;
     activePassengerRef.current = passenger;
-    if (passenger && worldRef.current) worldRef.current.setPassenger(passenger);
-    // The nav arrow follows the mission drop implicitly (effectiveNavTargetId), unless the
-    // player has set an explicit destination or is mid trip-plan.
-    const dest = GUJARAT_LOCATIONS.find((l) => l.id === mission.dropLocationId)?.nameGujarati ?? mission.dropLocationId;
-    notify({ text: `${mission.titleGujarati} — ચાલો ${dest} તરફ!`, tone: 'reward' });
+    if (passenger) worldRef.current?.setPassenger(passenger);
+    notify({ text: `${mission.titleGujarati} — ચાલો ${locName(mission.dropLocationId)} તરફ!`, tone: 'reward' });
   };
 
   const handleCancelMission = () => {
@@ -692,79 +469,59 @@ export default function App() {
     setActivePassenger(null);
     activeMissionRef.current = null;
     activePassengerRef.current = null;
-    if (worldRef.current) worldRef.current.setPassenger(null);
+    worldRef.current?.setPassenger(null);
     notify({ text: 'મિશન રદ થયું.', tone: 'info', speak: false });
   };
 
-  const handleBuySouvenir = (souvenirId: string) => {
-    const item = GUJARATI_SOUVENIRS.find((s) => s.id === souvenirId);
-    if (!item || collectedSouvenirs.includes(souvenirId)) return;
-    setCollectedSouvenirs((prev) => (prev.includes(souvenirId) ? prev : [...prev, souvenirId]));
-    pushKakaEvent({ kind: 'souvenir', nameGujarati: item.nameGujarati });
-    notify({ text: `🛍️ ${item.nameGujarati} સ્મૃતિમાં સાચવ્યું!`, tone: 'reward', speak: false });
-  };
-
-  const handleQuizCorrect = () => {
-    setQuizScore((s) => ({ correct: s.correct + 1, totalAnswered: s.totalAnswered + 1 }));
-    pushKakaEvent({ kind: 'quiz', correct: true });
-    notify({ text: 'સાચો જવાબ! શાબાશ!', tone: 'reward', speak: false });
-  };
-
   const handleRepair = () => {
-    if (worldRef.current) {
-      worldRef.current.repairPunctureAndCool();
-    }
-    pushKakaEvent({ kind: 'repair' });
+    worldRef.current?.repairPunctureAndCool();
     notify({ text: '🔧 પંચર રીપેર અને એન્જિન ઠંડુ થયું!', tone: 'reward', speak: false });
   };
 
-  const handleStartGame = (startLoc: LocationData, isResume = false) => {
-    setCurrentLocation(startLoc);
-    recordVisit(startLoc.id);
+  // New trip or resume — both start in Gandhinagar (resume keeps visited places, missions,
+  // odometer and garage choices).
+  const handleStartGame = (isResume = false) => {
+    setCurrentLocation(START_LOCATION);
+    recordVisit(START_LOCATION.id);
     setIsGameStarted(true);
 
     soundManager.startEngine();
     voiceQueue.enqueue(
       isResume
-        ? `ફરી સ્વાગત છે! આપણો છકડો ${startLoc.nameGujarati} થી આગળ વધે છે. જય ગરવી ગુજરાત!`
-        : `ચાલો બાપા! આપણો છકડો ${startLoc.nameGujarati} થી ઉપડ્યો! જય ગરવી ગુજરાત!`,
+        ? `ફરી સ્વાગત છે! આપણું ${vehicleName} ${START_LOCATION.nameGujarati} થી આગળ વધે છે. જય ગરવી ગુજરાત!`
+        : `ચાલો! આપણું ${vehicleName} રાજધાની ${START_LOCATION.nameGujarati} થી ઉપડ્યું! જય ગરવી ગુજરાત!`,
     );
   };
 
-  const initialLocation =
-    GUJARAT_LOCATIONS.find((l) => l.id === initial.lastLocationId) ?? GUJARAT_LOCATIONS[0];
-  const hasSave =
-    initial.visitedLocations.length > 1 || initial.totalKm > 0;
-  const handleResume = () => handleStartGame(initialLocation, true);
+  const hasSave = initial.visitedLocations.length > 1 || initial.totalKm > 0;
 
-  const handleToggleMute = () => {
-    const muted = soundManager.toggleMute();
-    setIsMuted(muted);
-  };
+  const handleToggleMute = () => setIsMuted(soundManager.toggleMute());
 
   const handleToggleHeadlight = () => {
-    if (worldRef.current) {
-      const state = worldRef.current.toggleHeadlight();
-      setIsHeadlightOn(state);
-    }
+    if (worldRef.current) setIsHeadlightOn(worldRef.current.toggleHeadlight());
   };
 
   const handleToggleHazard = () => {
-    if (worldRef.current) {
-      const state = worldRef.current.toggleHazardLights();
-      setIsHazardOn(state);
-    }
+    if (worldRef.current) setIsHazardOn(worldRef.current.toggleHazardLights());
   };
 
   // Expert mode ⇔ manual gearbox. Flipping it also switches the transmission (and tells the
-  // running world), so the gauge badge and shift behaviour follow the one toggle. Both fields
-  // ride the existing saveProgress payload.
+  // running world), so the gauge badge and shift behaviour follow the one toggle.
   const handleToggleExpertMode = () => {
     const next = !expertMode;
     const mode: TransmissionMode = next ? 'manual' : 'auto';
     setExpertMode(next);
     setTransmissionMode(mode);
     worldRef.current?.setTransmissionMode(mode);
+  };
+
+  const handleChangeVehicle = (v: VehicleType) => {
+    setVehicleType(v);
+    const world = worldRef.current;
+    if (world && world.vehicleType !== v) {
+      world.setVehicleType(v);
+      notify({ text: `${VEHICLE_SPECS[v].nameGujarati} તૈયાર છે — ચાલો!`, tone: 'reward', speak: false, ttlMs: 3000 });
+    }
   };
 
   const handleShiftUp = () => worldRef.current?.shiftUp();
@@ -777,84 +534,63 @@ export default function App() {
     const nowOn = world.toggleEngine();
     setIsEngineOn(nowOn);
     if (wasOn && nowOn) {
-      // Engine stayed on: refused to stop while the cart is still rolling.
-      notify({
-        text: 'છકડો ઊભો રાખીને એન્જિન બંધ કરો',
-        tone: 'info',
-        speak: false,
-        ttlMs: 3000,
-      });
+      // Engine stayed on: refused to stop while still rolling.
+      notify({ text: `${VEHICLE_SPECS[world.vehicleType].nameGujarati} ઊભું રાખીને એન્જિન બંધ કરો`, tone: 'info', speak: false, ttlMs: 3000 });
     } else if (!wasOn && !nowOn) {
-      notify({
-        text: 'એન્જિન ચાલુ કરવા છકડો ઊભો રાખો અને ગિયર N કે R માં નાખો',
-        tone: 'info',
-        speak: false,
-        ttlMs: 3500,
-      });
+      notify({ text: 'એન્જિન ચાલુ કરવા વાહન ઊભું રાખો અને ગિયર N કે R માં નાખો', tone: 'info', speak: false, ttlMs: 3500 });
     } else {
       notify({ text: nowOn ? '🔑 એન્જિન ચાલુ' : '🔑 એન્જિન બંધ', tone: 'info', speak: false, ttlMs: 2500 });
     }
   };
 
   const handleChangeCamera = () => {
-    if (worldRef.current) {
-      const modes: CameraMode[] = ['chase', 'hood', 'passenger', 'cinematic', 'drone'];
-      const nextIdx = (modes.indexOf(cameraMode) + 1) % modes.length;
-      const nextMode = modes[nextIdx];
-      worldRef.current.setCameraMode(nextMode);
-      setCameraMode(nextMode);
-    }
+    if (!worldRef.current) return;
+    const modes: CameraMode[] = ['chase', 'hood', 'passenger', 'cinematic', 'drone'];
+    const nextMode = modes[(modes.indexOf(cameraMode) + 1) % modes.length];
+    worldRef.current.setCameraMode(nextMode);
+    setCameraMode(nextMode);
   };
 
   const handleChangeWeather = () => {
-    if (worldRef.current) {
-      const weathers: WeatherType[] = ['sunny', 'sunset', 'night', 'rain', 'fog'];
-      const nextIdx = (weathers.indexOf(weather) + 1) % weathers.length;
-      const nextWeather = weathers[nextIdx];
-      // Manual pick wins for ~one cycle-distance (1400 m), then the region/time
-      // WeatherDirector resumes control. onWeatherChange mirrors it back into React state.
-      worldRef.current.setManualWeather(nextWeather);
-    }
+    if (!worldRef.current) return;
+    const weathers: WeatherType[] = ['sunny', 'sunset', 'night', 'rain', 'fog'];
+    const nextWeather = weathers[(weathers.indexOf(weather) + 1) % weathers.length];
+    // Manual pick wins for ~one cycle-distance (1400 m), then the region/time
+    // WeatherDirector resumes control. onWeatherChange mirrors it back into React state.
+    worldRef.current.setManualWeather(nextWeather);
   };
 
   const handleToggleFreezeDay = () => {
-    if (worldRef.current) {
-      const isFrozen = worldRef.current.toggleFreezeDay();
-      notify({
-        text: isFrozen
-          ? '☀️ દિવસ ફ્રીઝ: બપોરનો તેજસ્વી તડકો લૉક થયો (Day Frozen)'
-          : '🔄 ગતિશીલ ૨૪-કલાક સૂર્ય ચક્ર શરૂ થયું (Dynamic Cycle)',
-        tone: 'info',
-        speak: false,
-        ttlMs: 3000,
-      });
-    }
+    if (!worldRef.current) return;
+    const isFrozen = worldRef.current.toggleFreezeDay();
+    notify({
+      text: isFrozen
+        ? '☀️ દિવસ ફ્રીઝ: બપોરનો તેજસ્વી તડકો લૉક થયો (Day Frozen)'
+        : '🔄 ગતિશીલ ૨૪-કલાક સૂર્ય ચક્ર શરૂ થયું (Dynamic Cycle)',
+      tone: 'info',
+      speak: false,
+      ttlMs: 3000,
+    });
   };
 
   const handleSetTimeFreezeMode = (mode: TimeFreezeMode) => {
-    if (worldRef.current) {
-      worldRef.current.setTimeFreezeMode(mode);
-      const text: Record<TimeFreezeMode, string> = {
-        day: '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો (Freeze Day - 12:30 PM)',
-        dynamic: '🔄 ગતિશીલ ૨૪-કલાક સમય ચક્ર (Dynamic 24h Driving Cycle)',
-        sunrise: '🌅 સૂર્યોદય ફ્રીઝ: સોનેરી સવાર (Freeze Sunrise - 06:00 AM)',
-        sunset: '🌇 સંધ્યાકાળ ફ્રીઝ: લાલચોળ સાંજ (Freeze Sunset - 07:15 PM)',
-        night: '🌌 ચાંદની રાત ફ્રીઝ: શાંત મધ્યરાત્રિ (Freeze Night - 10:30 PM)',
-      };
-      notify({ text: text[mode], tone: 'info', speak: false, ttlMs: 3000 });
-    }
+    if (!worldRef.current) return;
+    worldRef.current.setTimeFreezeMode(mode);
+    const text: Record<TimeFreezeMode, string> = {
+      day: '☀️ દિવસ ફ્રીઝ: બપોરનો તડકો (Freeze Day - 12:30 PM)',
+      dynamic: '🔄 ગતિશીલ ૨૪-કલાક સમય ચક્ર (Dynamic 24h Driving Cycle)',
+      sunrise: '🌅 સૂર્યોદય ફ્રીઝ: સોનેરી સવાર (Freeze Sunrise - 06:00 AM)',
+      sunset: '🌇 સંધ્યાકાળ ફ્રીઝ: લાલચોળ સાંજ (Freeze Sunset - 07:15 PM)',
+      night: '🌌 ચાંદની રાત ફ્રીઝ: શાંત મધ્યરાત્રિ (Freeze Night - 10:30 PM)',
+    };
+    notify({ text: text[mode], tone: 'info', speak: false, ttlMs: 3000 });
   };
 
-  // "Rest till morning" — skip the day/night phase forward to the next 06:00. M3 is a plain
-  // skip; M4 ties it to dhaba stops. Does not touch the odometer.
+  // "Rest till morning" — resume the live cycle (clearing any weather-induced freeze), then
+  // let the world skip its own phase clock forward to the next 06:00.
   const handleRest = () => {
     const world = worldRef.current;
     if (!world) return;
-    // Resume the live cycle first: a frozen clock ignores the phase offset (manualMode
-    // overrides rawProgress). setTimeFreezeMode('dynamic') clears manualMode but leaves the
-    // weather-clock latch stale, so clear that too. Then let the world skip the phase clock
-    // forward to the next 06:00 from its OWN live state — no React-side arithmetic, which
-    // used to read the frozen manualProgress hour and land at an arbitrary offset.
     world.setTimeFreezeMode('dynamic');
     world.clearWeatherClockFreeze();
     world.advanceToHour(6);
@@ -862,13 +598,12 @@ export default function App() {
   };
 
   const handleFastTravel = (loc: LocationData) => {
-    if (worldRef.current) {
-      worldRef.current.teleportToLocation(loc);
-      setCurrentLocation(loc);
-      recordVisit(loc.id);
-      triggerLandmarkWelcome(loc);
-      checkMissionCompletion(loc.id);
-    }
+    if (!worldRef.current) return;
+    worldRef.current.teleportToLocation(loc);
+    setCurrentLocation(loc);
+    recordVisit(loc.id);
+    triggerLandmarkWelcome(loc);
+    checkMissionCompletion(loc.id);
   };
 
   const handleSetDestination = (loc: LocationData) => {
@@ -876,102 +611,16 @@ export default function App() {
     notify({ text: `${loc.nameGujarati} તરફ ચાલો — માર્ગ બતાવું છું`, tone: 'info' });
   };
 
-  // Scoped Gujarati voice commands from the Kaka mic. `unknown` never reaches here — the
-  // modal routes those to askKaka as a question.
-  const handleVoiceIntent = (intent: VoiceIntent) => {
-    switch (intent.kind) {
-      case 'navigate': {
-        const loc = GUJARAT_LOCATIONS.find((l) => l.id === intent.locationId);
-        if (!loc) return;
-        setRouteQueue([]);
-        setNavTarget({ locationId: loc.id });
-        voiceQueue.enqueue(`ચાલો ${loc.nameGujarati} તરફ!`);
-        break;
-      }
-      case 'open':
-        if (intent.target === 'map') setIsMapOpen(true);
-        else if (intent.target === 'passport') setIsPassportOpen(true);
-        else if (intent.target === 'missions') setIsMissionsOpen(true);
-        else if (intent.target === 'garage') setIsGarageOpen(true);
-        break;
-      case 'toggle':
-        if (intent.target === 'headlight') handleToggleHeadlight();
-        else if (intent.target === 'mute') handleToggleMute();
-        break;
-      case 'photo':
-        setIsPhotoModeOpen(true);
-        break;
-      case 'repeat':
-        if (lastKakaNarration) voiceQueue.enqueue(lastKakaNarration, { priority: 'high' });
-        break;
-    }
-  };
-
-  const handleToggleKakaMuted = () => {
-    setKakaMuted((m) => {
-      const next = !m;
-      if (next) voiceQueue.clear();
-      return next;
-    });
-  };
-
-  // The HUD Kaka-strip mic: same scoped-command-or-question routing as the modal, but it
-  // works without opening the chat. A lazily-created single recognition instance.
-  const [kakaMicActive, setKakaMicActive] = useState(false);
-  const quickRecRef = useRef<any>(null);
-  const handleKakaMic = () => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      notify({ text: 'તમારા બ્રાઉઝરમાં માઇક્રોફોન સપોર્ટેડ નથી.', tone: 'warn', speak: false });
-      return;
-    }
-    if (!quickRecRef.current) {
-      const rec = new SpeechRecognition();
-      rec.continuous = false;
-      rec.interimResults = false;
-      rec.lang = 'gu-IN';
-      rec.onresult = (e: any) => {
-        const transcript = e.results?.[0]?.[0]?.transcript;
-        if (transcript) {
-          const intent = matchVoiceIntent(transcript, GUJARAT_LOCATIONS);
-          if (intent.kind !== 'unknown') handleVoiceIntent(intent);
-          else {
-            setIsKakaOpen(true);
-            kaka.askKaka(transcript);
-          }
-        }
-        setKakaMicActive(false);
-      };
-      rec.onerror = () => setKakaMicActive(false);
-      rec.onend = () => setKakaMicActive(false);
-      quickRecRef.current = rec;
-    }
-    try {
-      quickRecRef.current.start();
-      setKakaMicActive(true);
-    } catch {
-      setKakaMicActive(false);
-    }
-  };
-
   const handleUpdateCustomization = (custom: ChhakaroCustomization) => {
     setCustomization(custom);
-    if (worldRef.current) {
-      worldRef.current.updateCustomization(custom);
-    }
+    worldRef.current?.updateCustomization(custom);
   };
 
   const handleMobileControl = (key: keyof VehicleControls, state: boolean) => {
-    if (worldRef.current) {
-      worldRef.current.setControlState(key, state);
-    }
+    worldRef.current?.setControlState(key, state);
   };
 
-  const handleResetProgress = () => {
-    clearProgress();
-    window.location.reload();
-  };
+  const navTargetLoc = effectiveNavTargetId ? GUJARAT_LOCATIONS.find((l) => l.id === effectiveNavTargetId) : null;
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black select-none">
@@ -981,12 +630,17 @@ export default function App() {
       {/* Start / Launch Screen */}
       {!isGameStarted && (
         <StartScreen
-          onStartGame={handleStartGame}
+          onStartGame={() => handleStartGame(false)}
           hasSave={hasSave}
-          lastLocationName={hasSave ? initialLocation.nameGujarati : null}
-          onResume={handleResume}
+          onResume={() => handleStartGame(true)}
+          vehicleType={vehicleType}
+          onChangeVehicle={handleChangeVehicle}
           expertMode={expertMode}
           onToggleExpertMode={handleToggleExpertMode}
+          onResetProgress={() => {
+            clearProgress();
+            window.location.reload();
+          }}
         />
       )}
 
@@ -995,7 +649,7 @@ export default function App() {
       {isGameStarted && notice && (
         <div
           key={notice.id}
-          className={`absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 border-2 px-5 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 animate-fade-in pointer-events-auto max-w-lg text-center ${
+          className={`absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-slate-950/90 border-2 px-5 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-3 animate-fade-in pointer-events-none max-w-lg text-center ${
             notice.tone === 'reward'
               ? 'border-amber-400 text-amber-300'
               : notice.tone === 'warn'
@@ -1003,40 +657,28 @@ export default function App() {
                 : 'border-slate-400 text-slate-200'
           }`}
         >
-          <span className="text-2xl">👳🏽‍♂️</span>
-          <div className="text-xs sm:text-sm font-bold font-serif">{notice.text}</div>
-          <button
-            onClick={() => setIsKakaOpen(true)}
-            className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-lg shrink-0"
-          >
-            કાકા બોલો
-          </button>
+          <span className="text-2xl">{notice.tone === 'warn' ? '⚠️' : currentLocation.icon}</span>
+          <div className="text-xs sm:text-sm font-bold">{notice.text}</div>
         </div>
       )}
 
-      {/* Turn-by-turn nav banner — explicit destination, Kaka trip plan, or mission drop */}
-      {isGameStarted && effectiveNavTargetId && navLive && (
+      {/* Turn-by-turn nav banner — explicit destination or mission drop */}
+      {isGameStarted && navTargetLoc && navLive && (
         <NavBanner
-          targetName={
-            GUJARAT_LOCATIONS.find((l) => l.id === effectiveNavTargetId)?.nameGujarati ?? effectiveNavTargetId
-          }
+          targetName={navTargetLoc.nameGujarati}
           distanceM={navLive.distanceM}
           relativeDeg={navLive.relativeDeg}
-          onCancel={() => {
-            setNavTarget(null);
-            setRouteQueue([]);
-          }}
+          onCancel={() => setNavTarget(null)}
         />
       )}
 
-      {/* Highway toll plaza prompt — pay ₹30, the boom gate rises, receipt notify, then it
-          stays quiet for 300 m. Matches the facility-pill look; fixed near the bottom-centre. */}
+      {/* Highway toll plaza prompt — the boom gate rises, then it stays quiet for 300 m. */}
       {isGameStarted && nearbyToll && (
         <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 w-[92%] max-w-md bg-slate-950/90 border-2 border-amber-400 p-4 rounded-3xl shadow-2xl flex items-center justify-between gap-4 animate-bounce pointer-events-auto">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-3xl shrink-0">🛣️</span>
             <div className="min-w-0">
-              <h4 className="font-black text-amber-300 text-sm truncate">{nearbyToll.name}</h4>
+              <h4 className="font-bold text-amber-300 text-sm truncate">{nearbyToll.name}</h4>
               <p className="text-xs text-slate-300">FASTag લેન — ગેટ ખૂલશે, આગળ વધો</p>
             </div>
           </div>
@@ -1061,14 +703,13 @@ export default function App() {
             rpm={rpm}
             gear={gear}
             transmissionMode={transmissionMode}
+            vehicleType={vehicleType}
             currentLocation={currentLocation}
             nearbyLandmark={nearbyLandmark}
             visitedLocations={visitedLocations}
             worldRef={worldRef}
             navTargetId={effectiveNavTargetId}
             nearbyFacility={nearbyFacility}
-            nearbyEncounter={nearbyEncounter}
-            coins={coins}
             isEngineOn={isEngineOn}
             isHeadlightOn={isHeadlightOn}
             isHazardOn={isHazardOn}
@@ -1090,22 +731,11 @@ export default function App() {
             onSetTimeFreezeMode={handleSetTimeFreezeMode}
             onRest={handleRest}
             onOpenMap={() => setIsMapOpen(true)}
-            onOpenPassport={() => setIsPassportOpen(true)}
-            onOpenFood={() => setIsFoodOpen(true)}
             onOpenGarage={() => setIsGarageOpen(true)}
-            onOpenKaka={() => setIsKakaOpen(true)}
-            lastKakaLine={lastKakaNarration}
-            kakaMuted={kakaMuted}
-            kakaMicActive={kakaMicActive}
-            onToggleKakaMuted={handleToggleKakaMuted}
-            onKakaMic={handleKakaMic}
             onOpenMissions={() => setIsMissionsOpen(true)}
-            onOpenSouvenirs={() => setIsSouvenirsOpen(true)}
-            onOpenQuiz={currentQuiz ? () => setIsQuizOpen(true) : undefined}
             onInspectLandmark={(loc) => setInspectingLandmark(loc)}
             onCapturePhoto={() => setIsPhotoModeOpen(true)}
             onRepair={handleRepair}
-            onInteractEncounter={(enc) => setActiveEncounterModal(enc)}
             expertMode={expertMode}
             onShiftUp={handleShiftUp}
             onShiftDown={handleShiftDown}
@@ -1123,23 +753,6 @@ export default function App() {
       )}
 
       {/* Modals & Dialogs */}
-      <KanjiKakaGuide
-        isOpen={isKakaOpen}
-        onClose={() => setIsKakaOpen(false)}
-        currentLocation={currentLocation}
-        messages={kaka.messages}
-        isThinking={kaka.isThinking}
-        onAsk={kaka.askKaka}
-        onGenerateTrip={kaka.generateTrip}
-        onStartTrip={(ids) => {
-          setNavTarget(null);
-          setRouteQueue(ids);
-          const first = GUJARAT_LOCATIONS.find((l) => l.id === ids[0]);
-          if (first) notify({ text: `સફર શરૂ! પહેલું સ્થળ: ${first.nameGujarati}`, tone: 'reward' });
-        }}
-        onVoiceIntent={handleVoiceIntent}
-      />
-
       <GujaratMapModal
         isOpen={isMapOpen}
         onClose={() => setIsMapOpen(false)}
@@ -1163,21 +776,6 @@ export default function App() {
         onCancelMission={handleCancelMission}
       />
 
-      <SouvenirShopModal
-        isOpen={isSouvenirsOpen}
-        onClose={() => setIsSouvenirsOpen(false)}
-        souvenirs={currentLocationSouvenirs}
-        coins={coins}
-        onBuySouvenir={handleBuySouvenir}
-      />
-
-      <QuizModal
-        isOpen={isQuizOpen}
-        onClose={() => setIsQuizOpen(false)}
-        quiz={currentQuiz}
-        onAnswerCorrect={handleQuizCorrect}
-      />
-
       <PhotoModeModal
         isOpen={isPhotoModeOpen}
         onClose={() => setIsPhotoModeOpen(false)}
@@ -1190,28 +788,13 @@ export default function App() {
         routeVisitedIds={visitedLocations}
       />
 
-      <PassportModal
-        isOpen={isPassportOpen}
-        onClose={() => setIsPassportOpen(false)}
-        visitedLocations={visitedLocations}
-        unlockedAchievements={unlockedAchievements}
-        totalDistanceKm={totalKm}
-        stampMeta={stampMeta}
-        onResetProgress={handleResetProgress}
-      />
-
-      <FoodPassportModal
-        isOpen={isFoodOpen}
-        onClose={() => setIsFoodOpen(false)}
-        discoveredFoods={discoveredFoods}
-        onDiscoverFood={handleDiscoverFood}
-      />
-
       <GarageModal
         isOpen={isGarageOpen}
         onClose={() => setIsGarageOpen(false)}
         customization={customization}
         onUpdateCustomization={handleUpdateCustomization}
+        vehicleType={vehicleType}
+        onChangeVehicle={handleChangeVehicle}
       />
 
       {inspectingLandmark && (
@@ -1220,28 +803,9 @@ export default function App() {
           onClose={() => setInspectingLandmark(null)}
           location={inspectingLandmark}
           isVisited={visitedLocations.includes(inspectingLandmark.id)}
-          stampRecord={stampMeta[inspectingLandmark.id]}
           onMarkVisited={(locId) => recordVisit(locId)}
-          onOpenKaka={() => {
-            setInspectingLandmark(null);
-            setIsKakaOpen(true);
-          }}
-        />
-      )}
-
-      {activeEncounterModal && (
-        <RoadsideEncounterModal
-          encounter={activeEncounterModal}
-          isFoodAlreadyDiscovered={
-            activeEncounterModal.foodId
-              ? discoveredFoods.includes(activeEncounterModal.foodId)
-              : false
-          }
-          onTasteAndCollect={handleTasteAndCollectFood}
-          onClose={() => setActiveEncounterModal(null)}
         />
       )}
     </div>
   );
 }
-

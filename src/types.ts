@@ -35,10 +35,8 @@ export interface LocationData {
   tagline: string;
   description: string;
   history: string;
-  /** One reliable "why this place matters" sentence — shown on the passport stamp and in the History Card once visited. */
-  passportStory?: string;
-  famousFood: string;
-  foodDescription: string;
+  /** One reliable "why this place matters" sentence — shown in the History Card. */
+  story?: string;
   culturalHighlights: string[];
   landmarks: string[];
   worldPosition: { x: number; z: number };
@@ -60,7 +58,9 @@ export interface LocationData {
     | 'jain_temple_hill'
     | 'indus_valley'
     | 'shaktipeeth_fort'
-    | 'salt_memorial';
+    | 'salt_memorial'
+    | 'smart_city'
+    | 'coastal_town';
   ambientAudioType: 'village' | 'ocean' | 'forest' | 'wind' | 'city' | 'rain';
   signboardText: string;
   unlockRequirement?: string;
@@ -68,6 +68,9 @@ export interface LocationData {
   /** Optional signature landmark for this zone — drives the hero-landmark set piece (M3 Task 3). */
   heroLandmark?: 'raniKiVav' | 'somnath' | 'girGate' | 'whiteRann' | 'statueOfUnity';
 }
+
+/** The drivable vehicle the player picked on the start screen (or in the garage). */
+export type VehicleType = 'chhakaro' | 'car' | 'bike';
 
 export interface ChhakaroCustomization {
   bodyColor: number | string;
@@ -84,86 +87,22 @@ export interface ChhakaroCustomization {
   seatCoverPattern?: 'bandhani' | 'kathiyawadi_patch' | 'classic_brown';
 }
 
-/** What M1 actually stores per visited location — leaner than the unused PassportStamp. */
-export interface PassportStampRecord {
-  visitedAt: string;        // ISO date-time
-  kilometersDriven: number; // odometer reading at first visit
-}
-
 export interface GameProgress {
   coins: number;
   reputationStars: number;
   visitedLocations: string[];
-  discoveredFoods: string[];
-  unlockedAchievements: string[];
-  collectedSouvenirs: string[];
   completedMissions: string[];
-  quizScore: { correct: number; totalAnswered: number };
   customization: ChhakaroCustomization;
   totalKm: number;
   lastLocationId: string;
-  stampMeta: Record<string, PassportStampRecord>;
-  kakaMuted: boolean;
   transmissionMode: TransmissionMode;
   expertMode: boolean;
-}
-
-export interface PassportStamp {
-  locationId: string;
-  locationName: string;
-  visitedAt: string;
-  kilometersDriven: number;
-  unlockedStory: string;
+  vehicleType: VehicleType;
 }
 
 /** A set destination for the turn-by-turn arrow. The route is derived each frame, not stored. */
 export interface NavTarget {
   locationId: string;
-}
-
-export interface FoodItem {
-  id: string;
-  nameGujarati: string;
-  nameEnglish: string;
-  region: string;
-  description: string;
-  locationId: string;
-  discovered: boolean;
-  tasteRating: number;
-  imageEmoji: string;
-  kakaReview: string;
-}
-
-export type FoodDiscovery = FoodItem;
-
-export type EncounterType = 'gathiya_stall' | 'tea_stall' | 'dhaba' | 'farm_stand' | 'handicraft_shop';
-
-export interface RoadsideEncounter {
-  id: string;
-  type: EncounterType;
-  nameGujarati: string;
-  nameEnglish: string;
-  taglineGujarati: string;
-  foodId?: string;
-  foodNameGujarati?: string;
-  foodNameEnglish?: string;
-  emoji: string;
-  kakaDialogue: string;
-  worldPosition: { x: number; z: number };
-  distance?: number;
-  visited?: boolean;
-  rewardCoins?: number;
-}
-
-export interface GameAchievement {
-  id: string;
-  titleGujarati: string;
-  titleEnglish: string;
-  description: string;
-  descriptionGujarati?: string;
-  icon: string;
-  unlocked: boolean;
-  unlockedAt?: string;
 }
 
 export interface VehicleControls {
@@ -219,7 +158,6 @@ export interface MissionData {
   speedLimitMax?: number;
   type: MissionType;
   passenger?: PassengerData;
-  targetFoodId?: string;
   targetLandmarkId?: string;
   icon: string;
 }
@@ -255,29 +193,6 @@ export interface DriverStaminaState {
   maxEnergy: 100;
   chaiCupsCount: number;
   lastChaiTime: number;
-}
-
-export interface SouvenirItem {
-  id: string;
-  nameGujarati: string;
-  nameEnglish: string;
-  region: string;
-  locationId: string;
-  priceCoins: number;
-  iconEmoji: string;
-  descriptionGujarati: string;
-  acquired: boolean;
-}
-
-export interface CulturalQuiz {
-  id: string;
-  locationId: string;
-  locationNameGujarati: string;
-  questionGujarati: string;
-  optionsGujarati: string[];
-  correctAnswerIdx: number;
-  factExplanationGujarati: string;
-  coinReward: number;
 }
 
 export type PhotoFilterId =
